@@ -145,7 +145,7 @@ species Security
 {
 	aspect default
 	{
-		draw sphere(2) at: location color: #red;
+		draw sphere(3) at: location color: #black;
 	}
 }
 
