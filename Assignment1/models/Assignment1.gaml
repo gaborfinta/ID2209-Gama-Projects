@@ -10,6 +10,9 @@ global
 {
 	int GuestNumber <- rnd(10)+10;
 	int StoreNumber <- rnd(4,6);
+	point infoCenterLocation <- {50,50};
+	// the rate at which guests grow hungry
+	int hungerRate <- 2;
 	
 	init
 	{
@@ -24,7 +27,7 @@ global
 		 */
 		create InfoCenter number: 1
 		{
-			location <- {50,50};
+			location <- infoCenterLocation;
 		}
 		
 		/*
@@ -75,15 +78,15 @@ species Guest skills:[moving]
 	 * TODO: if thirst/hunger is zero agent dies
 	 */
 	reflex alwaysThirstyAlwaysHungry {
-		thirst <- (thirst - rnd(5));
-		hunger <- (hunger - rnd(5));
+		thirst <- (thirst - rnd(hungerRate));
+		hunger <- (hunger - rnd(hungerRate));
 		
 		/* If agent has no target and either thirst or hunger is less than 50
 		 * then set targetPoint to info
 		 * TODO: if agent knows location of store, set that as the targetPoint 
 		 */
 		if(targetPoint = nil and (thirst < 50 or hunger < 50)) {
-			targetPoint <- {50,50};
+			targetPoint <- infoCenterLocation;
 			string destinationMessage <- name + "heading to " + targetPoint;
 			//write name + " heading to " + targetPoint;
 			if(thirst < 50 and hunger < 50) {
@@ -125,27 +128,43 @@ species Guest skills:[moving]
 		do goto target:targetPoint;
 	}
 	
-	/*Guest arrives to infocenter */
-	reflex infoCenterReached when: targetPoint != nil and location distance_to(targetPoint) < 3 
+	/* Guest arrives to infocenter
+	 * It is assumed the guests will only head to the info center when either thirsty or hungry
+	 * 
+	 * If an agent is hungry,
+	 * they will request for the location of a store that sells food,
+	 * otherwise any store will do.
+	 * 
+	 * i.e. if the agent is both hungry and thirsty,
+	 * it will request for a place that sells food,
+	 * since all stores sell drinks 
+	 */
+	reflex infoCenterReached when: targetPoint = infoCenterLocation and location distance_to(targetPoint) < 3 
 	{
 		ask InfoCenter at_distance 3
 		{
 			//Set targetpoint to the correct target
-			//Hungry but not thirsty
-			if(myself.hunger < 50 and myself.thirst >= 50)
-			{
-				//targetPoint <- get locaion from infocenter
+			/* If guest is hungry, they will request a store that sells food */
+			//if(myself.hunger < 50 and myself.thirst >= 50)
+			if(myself.hunger <= 50) {
+				//targetPoint <- get location of food store from infocenter
 			}
+			else {
+				// otherwise any (closest) store will do
+			}
+
+			/*
 			//Thirsty but not hungry
 			else if(myself.thirst < 50 and myself.hunger >= 50)
 			{
-				
+				//TODO: get location of any store from infocenter 
 			}
 			//Hungry and thirsty
+			// if an agent is hungry, they will already go to a 
 			else
 			{
 				
-			}
+			}*/
 			
 		}
 		
@@ -155,15 +174,42 @@ species Guest skills:[moving]
 /* InfoCenter serves info with the ask function */
 species InfoCenter
 {
+	// Get every store within 1000, should be enough
+	list<Store> stores <- (Store at_distance 1000);
+	// Locations of stores that sell food (and drinks)
+	list<point> foodStores;
+	// Locations of stores that sell only drinks
+	list<point> drinkStores;
+	
+	// We only want to querry locations once
+	bool hasLocations <- false;
+	
 	aspect default
 	{
 		draw cube(5) at: location color: #blue;
+	}
+	
+	reflex getStoreLocations when :!hasLocations {
+		ask stores {
+			// If store sells food, append location to list
+			if (sellsFood) {
+				myself.foodStores <+ location;
+			}
+			else {
+				myself.drinkStores <+ location;
+			}
+		}
+		hasLocations <- true;
+		write name + " has asked the store locations.";
 	}
 }
 
 /* 
  * All stores sell drinks, a store has a 50% chance of selling food.
  * Stores selling food are golden
+ * 
+ * It is technically possible that no food-selling stores are created,
+ * but the probability is very small
  */
 species Store
 {
