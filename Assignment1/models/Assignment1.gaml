@@ -34,6 +34,12 @@ global
 		{
 
 		}
+		
+		/* Create security */
+		create Security number: 1
+		{
+
+		}
 	}
 	
 }
@@ -75,8 +81,8 @@ species Guest skills:[moving]
 	 * TODO: if thirst/hunger is zero agent dies
 	 */
 	reflex alwaysThirstyAlwaysHungry {
-		thirst <- (thirst - rnd(5));
-		hunger <- (hunger - rnd(5));
+		thirst <- (thirst - rnd(2));
+		hunger <- (hunger - rnd(2));
 		
 		/* If agent has no target and either thirst or hunger is less than 50
 		 * then set targetPoint to info
@@ -126,7 +132,7 @@ species Guest skills:[moving]
 	}
 	
 	/*Guest arrives to infocenter */
-	reflex infoCenterReached when: targetPoint != nil and location distance_to(targetPoint) < 3 
+	reflex infoCenterReached when: targetPoint != nil and location distance_to(targetPoint) < infoCenterSize
 	{
 		ask InfoCenter at_distance infoCenterSize
 		{
@@ -159,6 +165,21 @@ species InfoCenter
 	{
 		draw cube(5) at: location color: #blue;
 	}
+	
+	reflex checkForBadGuest
+	{
+		ask Guest at_distance infoCenterSize
+		{
+			if(self.isBad)
+			{
+				Guest badGuest <- self;
+				ask Security
+				{
+					self.target <- badGuest;
+				}
+			}
+		}
+	}
 }
 
 /* 
@@ -183,12 +204,30 @@ species Store
 }
 
 /* This is the bouncer that goes around killing bad agents */
-species Security
+species Security skills:[moving]
 {
+	Guest target <- nil;
 	aspect default
 	{
-		draw cross(4) at: location color: #orange;
+		draw cube(3) at: location color: #black;
 	}
+	
+	reflex catchBadGuest when: target != nil
+	{
+		do goto target:target.location speed: 4.0;
+	}
+	
+	reflex badGuestCaught when: target != nil and location distance_to(target) < 0.5
+	{
+		target <- nil;
+		ask Guest at_distance 0.5
+		{
+			write name + ': exterminated by Robocop!';
+			do die;
+		}
+	}
+	
+	
 }
 
 experiment main type: gui
@@ -201,6 +240,7 @@ experiment main type: gui
 			species Guest;
 			species InfoCenter;
 			species Store;
+			species Security;
 		}
 	}
 }
