@@ -8,8 +8,12 @@
 model NewModel
 global 
 {
+	/*
+	 * Configs
+	 */
 	int GuestNumber <- rnd(10)+10;
-	int StoreNumber <- rnd(4,6);
+	int FoodStoreNumber <- rnd(2,3);
+	int DrinkStoreNumber <- rnd(2,3);
 	point infoCenterLocation <- {50,50};
 	// the rate at which guests grow hungry
 	int hungerRate <- 2;
@@ -22,20 +26,29 @@ global
 			
 		}
 		
+				
+		/*
+		 * Number of stores id defined above 
+		 */
+		create FoodStore number: FoodStoreNumber
+		{
+
+		}
+		
+		/*
+		 * Number of stores id defined above 
+		 */
+		create DrinkStore number: DrinkStoreNumber
+		{
+
+		}
+		
 		/*
 		 * location is 50,50 to put the info center in the middle
 		 */
 		create InfoCenter number: 1
 		{
 			location <- infoCenterLocation;
-		}
-		
-		/*
-		 * Number of stores id defined above 
-		 */
-		create Store number: StoreNumber
-		{
-
 		}
 	}
 	
@@ -125,7 +138,7 @@ species Guest skills:[moving]
 	
 	/* When agent has target, move towards target */
 	reflex moveToTarget when: targetPoint != nil {
-		do goto target:targetPoint;
+		do goto target:targetPoint speed: 5.0;
 	}
 	
 	/* Guest arrives to infocenter
@@ -148,10 +161,13 @@ species Guest skills:[moving]
 			//if(myself.hunger < 50 and myself.thirst >= 50)
 			if(myself.hunger <= 50) {
 				//targetPoint <- get location of food store from infocenter
+				myself.targetPoint <- foodStoreLocs[rnd(length(foodStoreLocs)-1)].location;
 			}
 			else {
 				// otherwise any (closest) store will do
+				myself.targetPoint <- drinkStoreLocs[rnd(length(drinkStoreLocs)-1)].location;
 			}
+			write myself.name + "heading to " + myself.targetPoint;
 
 			/*
 			//Thirsty but not hungry
@@ -175,11 +191,14 @@ species Guest skills:[moving]
 species InfoCenter
 {
 	// Get every store within 1000, should be enough
-	list<Store> stores <- (Store at_distance 1000);
+	//list<Store> stores <- (Store at_distance 1000);
 	// Locations of stores that sell food (and drinks)
-	list<point> foodStores;
+	//list<point> foodStores;
 	// Locations of stores that sell only drinks
-	list<point> drinkStores;
+	//list<point> drinkStores;
+	
+	list<FoodStore> foodStoreLocs <- (FoodStore at_distance 1000);
+	list<DrinkStore> drinkStoreLocs <- (DrinkStore at_distance 1000);
 	
 	// We only want to querry locations once
 	bool hasLocations <- false;
@@ -190,6 +209,7 @@ species InfoCenter
 	}
 	
 	reflex getStoreLocations when :!hasLocations {
+		/*
 		ask stores {
 			// If store sells food, append location to list
 			if (sellsFood) {
@@ -199,8 +219,22 @@ species InfoCenter
 				myself.drinkStores <+ location;
 			}
 		}
-		hasLocations <- true;
-		write name + " has asked the store locations.";
+		 */
+			/* 
+			loop i from: 0 to: length(stores)-1 {
+				if(stores[i].sellsFood) {
+					foodStores <+ stores[i].location;
+					write "Found food store at" + stores[i].location;
+				}
+				else {
+					drinkStores <+ stores[i].location;
+					write "Found drink store at" + stores[i].location;
+				}
+			}
+			
+			hasLocations <- true;
+			write name + " has asked the store locations.";
+			*/
 	}
 }
 
@@ -211,21 +245,21 @@ species InfoCenter
  * It is technically possible that no food-selling stores are created,
  * but the probability is very small
  */
-species Store
+species FoodStore
 {
-	bool sellsFood <- flip(0.5);
-	
-	rgb color <- #green;
-	
 	aspect default
 	{
-		if(sellsFood) {
-			color <- #gold;	
-		}
-		
-	draw pyramid(5) at: location color: color;
+		draw pyramid(5) at: location color: #green;
 	}
-	
+}
+
+/* TODO: document */
+species DrinkStore
+{	
+	aspect default
+	{
+		draw pyramid(5) at: location color: #gold;
+	}
 }
 
 /* This is the bouncer that goes around killing bad agents */
@@ -245,8 +279,9 @@ experiment main type: gui
 		display map type: opengl
 		{
 			species Guest;
+			species FoodStore;
+			species DrinkStore;
 			species InfoCenter;
-			species Store;
 		}
 	}
 }
