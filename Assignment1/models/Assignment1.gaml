@@ -1,8 +1,7 @@
 /**
-* Name: NewModel
+* Name: Assignment 1
 * Author: Finta, Vartiainen
 * Description: Hello world
-* Tags: Tag1, Tag2, TagN
 */
 
 model NewModel
@@ -14,6 +13,7 @@ global
 	int GuestNumber <- rnd(10)+10;
 	int FoodStoreNumber <- rnd(2,3);
 	int DrinkStoreNumber <- rnd(2,3);
+	int infoCenterSize <- 5;
 	point infoCenterLocation <- {50,50};
 	// the rate at which guests grow hungry
 	int hungerRate <- 2;
@@ -49,6 +49,12 @@ global
 		create InfoCenter number: 1
 		{
 			location <- infoCenterLocation;
+		}
+			
+		/* Create security */
+		create Security number: 1
+		{
+
 		}
 	}
 	
@@ -138,7 +144,7 @@ species Guest skills:[moving]
 	
 	/* When agent has target, move towards target */
 	reflex moveToTarget when: targetPoint != nil {
-		do goto target:targetPoint speed: 5.0;
+		do goto target:targetPoint speed: 3.0;
 	}
 	
 	/* Guest arrives to infocenter
@@ -154,7 +160,7 @@ species Guest skills:[moving]
 	 */
 	reflex infoCenterReached when: targetPoint = infoCenterLocation and location distance_to(targetPoint) < 3 
 	{
-		ask InfoCenter at_distance 3
+		ask InfoCenter at_distance infoCenterSize
 		{
 			//Set targetpoint to the correct target
 			/* If guest is hungry, they will request a store that sells food */
@@ -208,6 +214,20 @@ species InfoCenter
 		draw cube(5) at: location color: #blue;
 	}
 	
+	reflex checkForBadGuest
+	{
+		ask Guest at_distance infoCenterSize
+		{
+			if(self.isBad)
+			{
+				Guest badGuest <- self;
+				ask Security
+				{
+					self.target <- badGuest;
+				}
+			}
+		}
+	}
 	reflex getStoreLocations when :!hasLocations {
 		/*
 		ask stores {
@@ -263,12 +283,28 @@ species DrinkStore
 }
 
 /* This is the bouncer that goes around killing bad agents */
-species Security
+species Security skills:[moving]
 {
+	Guest target <- nil;
 	aspect default
 	{
-		draw cross(4) at: location color: #orange;
+		draw cube(3) at: location color: #black;
 	}
+	
+	reflex catchBadGuest when: target != nil
+	{
+		do goto target:target.location speed: 4.0;
+	}
+	
+	reflex badGuestCaught when: target != nil and location distance_to(target) < 0.5
+	{
+		target <- nil;
+		ask Guest at_distance 0.5
+		{
+			write name + ': exterminated by Robocop!';
+			do die;
+		}
+	}	
 }
 
 experiment main type: gui
@@ -282,6 +318,8 @@ experiment main type: gui
 			species FoodStore;
 			species DrinkStore;
 			species InfoCenter;
+
+			species Security;
 		}
 	}
 }
