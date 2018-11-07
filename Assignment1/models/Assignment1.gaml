@@ -94,6 +94,32 @@ species Guest skills:[moving]
 	reflex moveToTarget when: targetPoint != nil {
 		do goto target:targetPoint;
 	}
+	
+	/*Guest arrives to infocenter */
+	reflex infoCenterReached when: targetPoint != nil and location distance_to(targetPoint) < 3 
+	{
+		ask InfoCenter at_distance 3
+		{
+			//Set targetpoint to the correct target
+			//Hungry but not thirsty
+			if(myself.hunger < 50 and myself.thirst >= 50)
+			{
+				//targetPoint <- get locaion from infocenter
+			}
+			//Thirsty but not hungry
+			else if(myself.thirst < 50 and myself.hunger >= 50)
+			{
+				
+			}
+			//Hungry and thirsty
+			else
+			{
+				
+			}
+			
+		}
+		
+	}
 }
 
 /* InfoCenter serves info with the ask function */
