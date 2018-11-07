@@ -18,7 +18,7 @@ global
 			
 		}
 		
-		/* Create Infocenter at the center
+		/*
 		 * location is 50,50 to put the info center in the middle
 		 */
 		create InfoCenter number: 1
@@ -30,12 +30,15 @@ global
 }
 
 
-/* Guests are festival guests 
+/*
  * Max value for both thirst and hunger is 100
  * Guests enter with a random value for both between 50 and 100
  * 
  * Each guest gets an id number, which is simply a random number between 1000 and 10 000,
  * technically two guests could have the same id, but given the small number of guests that's unlikely
+ * 
+ * Guests will wander about until they get either thirsty or hungry, at which point they will start heading towards the info center
+ * TODO: Once guests reach info center, they will ask for the location of either the 
  */
 species Guest skills:[moving]
 {
@@ -65,7 +68,18 @@ species Guest skills:[moving]
 		 */
 		if(targetPoint = nil and (thirst < 50 or hunger < 50)) {
 			targetPoint <- {50,50};
-			write "Guest " + guestId + "heading to " + targetPoint;
+			string destinationMessage <- name + "heading to " + targetPoint;
+			//write name + " heading to " + targetPoint;
+			if(thirst < 50 and hunger < 50) {
+				destinationMessage <- destinationMessage + " I'm thirsty and hungry.";	
+			}
+			else if(thirst < 50) {
+				destinationMessage <- destinationMessage + " I'm thirsty.";
+			}
+			else if(hunger < 50) {
+				destinationMessage <- destinationMessage + " I'm hungry.";
+			}
+			write destinationMessage;
 		}
 	}
 
