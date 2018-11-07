@@ -9,6 +9,7 @@ model NewModel
 global 
 {
 	int GuestNumber <- rnd(10)+10;
+	int StoreNumber <- rnd(4,6);
 	
 	init
 	{
@@ -24,6 +25,14 @@ global
 		create InfoCenter number: 1
 		{
 			location <- {50,50};
+		}
+		
+		/*
+		 * Number of stores id defined above 
+		 */
+		create Store number: StoreNumber
+		{
+
 		}
 	}
 	
@@ -46,16 +55,23 @@ species Guest skills:[moving]
 	int hunger <- rnd(50)+50;
 	int guestId <- rnd(1000,10000);
 	
+	bool isBad <- flip(0.2);
+	rgb color <- #red;
+	
 	/* Default target to move towards */
 	point targetPoint <- nil;
 	
+	/* Bad agents are colored differently */
 	aspect default
 	{
-		draw sphere(2) at: location color: #red;
+		if(isBad) {
+			color <- #darkred;
+		}
+		draw sphere(2) at: location color: color;
 	}
 	
 	/* Reduce thirst and hunger with a random value between 0 and 5
-	 * Once agent's thirst or hunger reaches below 50, they will head towards info/shop
+	 * Once agent's thirst or hunger reaches below 50, they will head towards info/Store
 	 * TODO: if thirst/hunger is zero agent dies
 	 */
 	reflex alwaysThirstyAlwaysHungry {
@@ -82,6 +98,20 @@ species Guest skills:[moving]
 			write destinationMessage;
 		}
 	}
+	/*
+	 * if a guest's thirst or hunger <= 0, then the guest dies 
+	 */
+	reflex thenPerish when: (thirst <= 0 or hunger <= 0) {
+		string perishMessage <- name + " perished";
+		if(thirst <= 0) {
+			perishMessage <- perishMessage + " of thirst.";
+		}
+		else if(hunger <= 0) {
+			perishMessage <- perishMessage + " of hunger.";
+		}
+		write perishMessage;
+		do die;
+	}
 
 	/* Agent's default behavior when target not set
 	 * TODO: Do something more exciting here
@@ -101,17 +131,29 @@ species InfoCenter
 {
 	aspect default
 	{
-		draw sphere(2) at: location color: #blue;
+		draw cube(5) at: location color: #blue;
 	}
 }
 
-/* Shops can sell either food or drink */
-species Shop
+/* 
+ * All stores sell drinks, a store has a 50% chance of selling food.
+ * Stores selling food are golden
+ */
+species Store
 {
+	bool sellsFood <- flip(0.5);
+	
+	rgb color <- #green;
+	
 	aspect default
 	{
-		draw sphere(2) at: location color: #green;
+		if(sellsFood) {
+			color <- #gold;	
+		}
+		
+	draw pyramid(5) at: location color: color;
 	}
+	
 }
 
 /* This is the bouncer that goes around killing bad agents */
@@ -119,7 +161,7 @@ species Security
 {
 	aspect default
 	{
-		draw sphere(2) at: location color: #red;
+		draw cross(4) at: location color: #orange;
 	}
 }
 
@@ -132,6 +174,7 @@ experiment main type: gui
 		{
 			species Guest;
 			species InfoCenter;
+			species Store;
 		}
 	}
 }
