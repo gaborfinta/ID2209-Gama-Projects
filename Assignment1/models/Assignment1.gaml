@@ -59,7 +59,7 @@ species Guest skills:[moving]
 		thirst <- (thirst - rnd(5));
 		hunger <- (hunger - rnd(5));
 		
-		/* If agent has no target and either thirst or hunger is less than zero
+		/* If agent has no target and either thirst or hunger is less than 50
 		 * then set targetPoint to info
 		 * TODO: if agent knows location of store, set that as the targetPoint 
 		 */
