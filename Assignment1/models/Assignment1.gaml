@@ -1,14 +1,14 @@
 /**
-* Name: NewModel
+* Name: Assignment 1
 * Author: Finta, Vartiainen
 * Description: Hello world
-* Tags: Tag1, Tag2, TagN
 */
 
 model NewModel
 global 
 {
 	int GuestNumber <- rnd(10)+10;
+	int infoCenterSize <- 5;
 	
 	init
 	{
@@ -98,7 +98,7 @@ species Guest skills:[moving]
 	/*Guest arrives to infocenter */
 	reflex infoCenterReached when: targetPoint != nil and location distance_to(targetPoint) < 3 
 	{
-		ask InfoCenter at_distance 3
+		ask InfoCenter at_distance infoCenterSize
 		{
 			//Set targetpoint to the correct target
 			//Hungry but not thirsty
