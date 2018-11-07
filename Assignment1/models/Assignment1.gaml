@@ -1,6 +1,6 @@
 /**
 * Name: NewModel
-* Author: Finta
+* Author: Finta, Vartiainen
 * Description: Hello world
 * Tags: Tag1, Tag2, TagN
 */
@@ -8,19 +8,100 @@
 model NewModel
 global 
 {
+	int GuestNumber <- rnd(10)+10;
+	
 	init
 	{
-		create HelloAgent number: 2
+		/* Create GuestNumber (defined above) amount of Guests */
+		create Guest number: GuestNumber
 		{
 			
 		}
 		
+		/* Create Infocenter at the center
+		 * location is 50,50 to put the info center in the middle
+		 */
+		create InfoCenter number: 1
+		{
+			location <- {50,50};
+		}
 	}
 	
 }
 
 
-species HelloAgent
+/* Guests are festival guests 
+ * Max value for both thirst and hunger is 100
+ * Guests enter with a random value for both between 50 and 100
+ * 
+ * Each guest gets an id number, which is simply a random number between 1000 and 10 000,
+ * technically two guests could have the same id, but given the small number of guests that's unlikely
+ */
+species Guest skills:[moving]
+{
+	int thirst <- rnd(50)+50;
+	int hunger <- rnd(50)+50;
+	int guestId <- rnd(1000,10000);
+	
+	/* Default target to move towards */
+	point targetPoint <- nil;
+	
+	aspect default
+	{
+		draw sphere(2) at: location color: #red;
+	}
+	
+	/* Reduce thirst and hunger with a random value between 0 and 5
+	 * Once agent's thirst or hunger reaches below 50, they will head towards info/shop
+	 * TODO: if thirst/hunger is zero agent dies
+	 */
+	reflex alwaysThirstyAlwaysHungry {
+		thirst <- (thirst - rnd(5));
+		hunger <- (hunger - rnd(5));
+		
+		/* If agent has no target and either thirst or hunger is less than zero
+		 * then set targetPoint to info
+		 * TODO: if agent knows location of store, set that as the targetPoint 
+		 */
+		if(targetPoint = nil and (thirst < 50 or hunger < 50)) {
+			targetPoint <- {50,50};
+			write "Guest " + guestId + "heading to " + targetPoint;
+		}
+	}
+
+	/* Agent's default behavior when target not set
+	 * TODO: Do something more exciting here
+	 */
+	reflex beIdle when: targetPoint = nil {
+		do wander;
+	}
+	
+	/* When agent has target, move towards target */
+	reflex moveToTarget when: targetPoint != nil {
+		do goto target:targetPoint;
+	}
+}
+
+/* InfoCenter serves info with the ask function */
+species InfoCenter
+{
+	aspect default
+	{
+		draw sphere(2) at: location color: #blue;
+	}
+}
+
+/* Shops can sell either food or drink */
+species Shop
+{
+	aspect default
+	{
+		draw sphere(2) at: location color: #green;
+	}
+}
+
+/* This is the bouncer that goes around killing bad agents */
+species Security
 {
 	aspect default
 	{
@@ -35,7 +116,8 @@ experiment main type: gui
 	{
 		display map type: opengl
 		{
-			species HelloAgent;
+			species Guest;
+			species InfoCenter;
 		}
 	}
 }
