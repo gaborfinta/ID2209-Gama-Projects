@@ -10,7 +10,8 @@ global
 	/*
 	 * Configs
 	 */
-	int GuestNumber <- rnd(10)+10;
+	//int GuestNumber <- rnd(10)+10;
+	int GuestNumber <- 1;
 	int FoodStoreNumber <- rnd(2,3);
 	int DrinkStoreNumber <- rnd(2,3);
 	int infoCenterSize <- 5;
@@ -75,6 +76,8 @@ species Guest skills:[moving]
 	int thirst <- rnd(50)+50;
 	int hunger <- rnd(50)+50;
 	int guestId <- rnd(1000,10000);
+	bool goingToFoodStore <- false;
+	bool goingToDrinkStore <- false;
 	
 	bool isBad <- flip(0.2);
 	rgb color <- #red;
@@ -99,6 +102,8 @@ species Guest skills:[moving]
 	{
 		thirst <- (thirst - rnd(hungerRate));
 		hunger <- (hunger - rnd(hungerRate));
+		// since store locations are given as coordinates,
+		// using the targetPoint doesn't really work.
 		
 		/* 
 		 * If agent has no target and either thirst or hunger is less than 50
@@ -172,21 +177,46 @@ species Guest skills:[moving]
 	 * The guests will prioritize the attribute that is lower for them,
 	 * if tied then thirst goes first
 	 */
-	reflex infoCenterReached when: targetPoint = infoCenterLocation and location distance_to(targetPoint) < 3 
+	reflex infoCenterReached when: targetPoint = infoCenterLocation and location distance_to(targetPoint) < 3
 	{
+		string destinationString <- name  + "getting "; 
 		ask InfoCenter at_distance infoCenterSize
 		{
 			if(myself.thirst <= myself.hunger)
 			{
 				myself.targetPoint <- drinkStoreLocs[rnd(length(drinkStoreLocs)-1)].location;
+				destinationString <- destinationString + "drink at ";
+				myself.goingToDrinkStore <- true;
 			}
 			else
 			{
 				myself.targetPoint <- foodStoreLocs[rnd(length(foodStoreLocs)-1)].location;
+				destinationString <- destinationString + "food at ";
+				myself.goingToFoodStore <- true;
 			}
 			
-			write myself.name + "heading to " + myself.targetPoint;	
+			write destinationString + myself.targetPoint;
 		}
+	}
+	
+	/*
+	 * When the agent reaches a store, it replenishes the appropriate attribute
+	 * TODO: make sure current implementation doesn't show any weirdness,
+	 * since it tests for targetPoint adn goingToStore, but those are independent of eachother
+	 * TODO: add some interaction with the store maybe
+	 */
+	reflex storeReached when: (goingToFoodStore = true or goingToDrinkStore = true) and location distance_to(targetPoint) < 3 
+	{
+		if(goingToFoodStore = true) {
+			goingToFoodStore <- false;
+			hunger <- 100;
+		}
+		else if(goingToDrinkStore = true){
+			goingToDrinkStore <- false;
+			thirst <- 100;
+		}
+		
+		targetPoint <- nil;
 	}
 	
 }// Guest end
@@ -199,6 +229,20 @@ species InfoCenter {
 	
 	// We only want to querry locations once
 	bool hasLocations <- false;
+	
+	reflex listStoreLocations when: hasLocations = false
+	{
+		ask foodStoreLocs
+		{
+			write "Food store at:" + location; 
+		}	
+		ask drinkStoreLocs
+		{
+			write "Drink store at:" + location; 
+		}
+		
+		hasLocations <- true;
+	}
 	
 	aspect default
 	{
