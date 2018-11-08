@@ -17,7 +17,7 @@ global
 	point infoCenterLocation <- {50,50};
 	float guestSpeed <- 1.0;
 	// the rate at which guests grow hungry / thirsty
-	int hungerRate <- 1;
+	int hungerRate <- 2;
 	float roboCopSpeed <- 1.8;
 	
 	init
@@ -378,36 +378,32 @@ species DrinkStore parent: Building
 species Security skills:[moving]
 {
 	list<Guest> targets <- [];
-	//int currentTarget <- 0;
 	aspect default
 	{
 		draw cube(5) at: location color: #black;
 	}
 	
-	//reflex catchBadGuest when: length(targets) > currentTarget and !dead(targets[currentTarget])
 	reflex catchBadGuest when: length(targets) > 0
 	{
-		do goto target:(targets[0].location) speed: roboCopSpeed;
-	}
-	
-	//reflex badGuestCaught when: length(targets) > currentTarget and !dead(targets[currentTarget])
-	reflex badGuestCaught when: length(targets) > 0 
-	{
+		//this is needed in case the guest dies before robocop catches them
 		if(dead(targets[0]))
 		{
 			targets >- first(targets);
 		}
-		else if(location distance_to(targets[0].location) < 0.2)
+		else
 		{
-			ask targets[0]
-			{
-				write name + ': exterminated by Robocop!';
-				do die;
-			}
-			targets >- first(targets);	
+			do goto target:(targets[0].location) speed: roboCopSpeed;
 		}
-		// >- 0;// targets <- currentTarget + 1;
-		
+	}
+	
+	reflex badGuestCaught when: length(targets) > 0 and !dead(targets[0]) and location distance_to(targets[0].location) < 0.2
+	{
+		ask targets[0]
+		{
+			write name + ': exterminated by Robocop!';
+			do die;
+		}
+		targets >- first(targets);
 	}	
 }
 
@@ -427,6 +423,3 @@ experiment main type: gui
 		}
 	}
 }
-
-/* Insert your model definition here */
-
