@@ -11,7 +11,6 @@ global
 	 * Configs
 	 */
 	int GuestNumber <- rnd(10)+10;
-	//int GuestNumber <- 1;
 	int FoodStoreNumber <- rnd(2,3);
 	int DrinkStoreNumber <- rnd(2,3);
 	int infoCenterSize <- 5;
@@ -78,11 +77,14 @@ species Guest skills:[moving]
 	int thirst <- rnd(50)+50;
 	int hunger <- rnd(50)+50;
 	int guestId <- rnd(1000,10000);
-	bool goingToFoodStore <- false;
-	bool goingToDrinkStore <- false;
-	
+
 	bool isBad <- flip(0.2);
 	rgb color <- #red;
+
+		
+	bool isConscious <- true;
+	
+	list<Building> guestBrain;
 	
 	/* Default target to move towards */
 	Building target <- nil;
@@ -102,10 +104,12 @@ species Guest skills:[moving]
 	 */
 	reflex alwaysThirstyAlwaysHungry
 	{
+		/* Reduce thirst and hunger */
 		thirst <- (thirst - rnd(hungerRate));
 		hunger <- (hunger - rnd(hungerRate));
-		// since store locations are given as coordinates,
-		// using the targetPoint doesn't really work.
+		
+		// This is used to decide which store to prefer in case of draw. Default is drink.
+		bool getFood <- false;
 		
 		/* 
 		 * If agent has no target and either thirst or hunger is less than 50
@@ -117,22 +121,60 @@ species Guest skills:[moving]
 		 * TODO: if agent knows location of store, set that as the targetPoint 
 		 */
 		if(target = nil and (thirst < 50 or hunger < 50))
-		{
-			target <- one_of(InfoCenter);
-			string destinationMessage <- name + " heading to " + InfoCenter.name;
+		{	
+			string destinationMessage <- name; 
 			
+			// is agent thirsty, hungry or both.
+			// this is just for constructing the log message
 			if(thirst < 50 and hunger < 50)
 			{
-				destinationMessage <- destinationMessage + " I'm thirsty and hungry.";	
+				destinationMessage <- destinationMessage + " is thirsty and hungry,";
 			}
 			else if(thirst < 50)
 			{
-				destinationMessage <- destinationMessage + " I'm thirsty.";
+				destinationMessage <- destinationMessage + " is thirsty,";
 			}
 			else if(hunger < 50)
 			{
-				destinationMessage <- destinationMessage + " I'm hungry.";
+				destinationMessage <- destinationMessage + " is hungry,";
+				getFood <- true;
 			}
+			
+			// Guest has 50% chance of using brain or asking from infocenter
+			bool useBrain <- flip(0.5);
+			
+			// If the guest has locations saved in brain
+			if(length(guestBrain) > 0 and useBrain = true)
+			{
+				// If user is hungry, ask guestBrain for food stores,
+				// in the case of draw and otherwise ask for drink stores
+				loop i from: 0 to: length(guestBrain)-1
+				{
+					if(getFood = true and guestBrain[i].sellsFood = true)
+					{
+						target <- guestBrain[i];
+						destinationMessage <- destinationMessage + " (brain used)";
+						break;
+					}
+					else if(getFood = false and guestBrain[i].sellsDrink = true)
+					{
+						target <- guestBrain[i];
+						destinationMessage <- destinationMessage + " (brain used)";
+						break;
+					}
+				}
+			}
+
+			// If no valid store was found above
+			if(target = nil)
+			{
+				target <- one_of(InfoCenter);	
+			}
+			
+			// Set getFood back to false so we'll continue to prefer drink in the future too
+			getFood <- false;
+			
+			destinationMessage <- destinationMessage + " heading to " + target.name;
 			write destinationMessage;
 		}
 	}
@@ -181,20 +223,24 @@ species Guest skills:[moving]
 	 */
 	reflex infoCenterReached when: target != nil and target.location = infoCenterLocation and location distance_to(target.location) < infoCenterSize
 	{
-		string destinationString <- name  + "getting "; 
+		string destinationString <- name  + " getting "; 
 		ask InfoCenter at_distance infoCenterSize
 		{
 			if(myself.thirst <= myself.hunger)
 			{
 				myself.target <- drinkStoreLocs[rnd(length(drinkStoreLocs)-1)];
 				destinationString <- destinationString + "drink at ";
-				myself.goingToDrinkStore <- true;
 			}
 			else
 			{
 				myself.target <- foodStoreLocs[rnd(length(foodStoreLocs)-1)];
 				destinationString <- destinationString + "food at ";
-				myself.goingToFoodStore <- true;
+			}
+			
+			if(length(myself.guestBrain) < 2)
+			{
+				myself.guestBrain <+ myself.target;
+				destinationString <- destinationString + "(added to brain) ";
 			}
 			
 			write destinationString + myself.target.name;
@@ -202,20 +248,34 @@ species Guest skills:[moving]
 	}
 	
 	/*
-	 * When the agent reaches a store, it replenishes the appropriate attribute
-	 * TODO: make sure current implementation doesn't show any weirdness,
-	 * since it tests for targetPoint adn goingToStore, but those are independent of eachother
-	 * TODO: add some interaction with the store maybe
+	 * When the agent reaches a store, it asks what does the store replenish
+	 * Guests are foxy, opportunistic beasts and will attempt to refill their parameters at every destination
+	 * Yes, guests will even try to eat at the info center
+	 * Such ravenous guests
+	 * TODO: after a successfull interaction, add the store to the guest's memory
 	 */
-	reflex storeReached when: (goingToFoodStore = true or goingToDrinkStore = true) and location distance_to(target.location) < 3 
+	reflex isThisAStore when: target != nil and location distance_to(target.location) < 2
 	{
-		if(goingToFoodStore = true) {
-			goingToFoodStore <- false;
-			hunger <- 100;
-		}
-		else if(goingToDrinkStore = true){
-			goingToDrinkStore <- false;
-			thirst <- 100;
+		// TODO: check if destination sells food
+		ask target
+		{
+			string replenishString <- myself.name;	
+			if(sellsFood = true)
+			{
+				myself.hunger <- 100;
+				replenishString <- replenishString + " ate food at " + name;
+			}
+			else if(sellsDrink = true)
+			{
+				myself.thirst <- 100;
+				replenishString <- replenishString + " had a drink at " + name;
+			}
+			
+			// TODO: add store to guestBrain
+			
+			//if(empty(myself.guestBrain) or length(myself.guestBrain) < 2)
+			
+			write replenishString;
 		}
 		
 		target <- nil;
@@ -223,9 +283,17 @@ species Guest skills:[moving]
 	
 }// Guest end
 
-/*Parent Building */
+/*
+ * Parent Building
+ * by default buildings do not sell food or drink
+ * Unsurprisingly, food and drink stores do.
+ * guests will test for this when reaching their target building,
+ * guests are foxy beasts and will opportunistically fill whatever parameter they can
+ */
 species Building
 {
+	bool sellsFood <- false;
+	bool sellsDrink <- false;
 	
 }
 
@@ -283,6 +351,8 @@ species InfoCenter parent: Building
  */
 species FoodStore parent: Building
 {
+	bool sellsFood <- true;
+	
 	aspect default
 	{
 		draw pyramid(5) at: location color: #green;
@@ -293,7 +363,9 @@ species FoodStore parent: Building
  * These stores replenish guests' thirst. The info center keeps a list of drink stores.
  */
 species DrinkStore parent: Building
-{	
+{
+	bool sellsDrink <- true;
+	
 	aspect default
 	{
 		draw pyramid(5) at: location color: #gold;
