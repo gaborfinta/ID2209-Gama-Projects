@@ -10,14 +10,16 @@ global
 	/*
 	 * Configs
 	 */
-	//int GuestNumber <- rnd(10)+10;
-	int GuestNumber <- 1;
+	int GuestNumber <- rnd(10)+10;
+	//int GuestNumber <- 1;
 	int FoodStoreNumber <- rnd(2,3);
 	int DrinkStoreNumber <- rnd(2,3);
 	int infoCenterSize <- 5;
 	point infoCenterLocation <- {50,50};
+	float guestSpeed <- 1.0;
 	// the rate at which guests grow hungry / thirsty
-	int hungerRate <- 2;
+	int hungerRate <- 1;
+	float roboCopSpeed <- 1.8;
 	
 	init
 	{
@@ -83,7 +85,7 @@ species Guest skills:[moving]
 	rgb color <- #red;
 	
 	/* Default target to move towards */
-	point targetPoint <- nil;
+	Building target <- nil;
 	
 	/* Bad agents are colored differently */
 	aspect default
@@ -114,10 +116,10 @@ species Guest skills:[moving]
 		 * 
 		 * TODO: if agent knows location of store, set that as the targetPoint 
 		 */
-		if(targetPoint = nil and (thirst < 50 or hunger < 50))
+		if(target = nil and (thirst < 50 or hunger < 50))
 		{
-			targetPoint <- infoCenterLocation;
-			string destinationMessage <- name + "heading to " + targetPoint;
+			target <- one_of(InfoCenter);
+			string destinationMessage <- name + " heading to " + InfoCenter.name;
 			
 			if(thirst < 50 and hunger < 50)
 			{
@@ -159,15 +161,15 @@ species Guest skills:[moving]
 	 * Agent's default behavior when target not set
 	 * TODO: Do something more exciting here
 	 */
-	reflex beIdle when: targetPoint = nil
+	reflex beIdle when: target = nil
 	{
 		do wander;
 	}
 	
 	/* When agent has target, move towards target */
-	reflex moveToTarget when: targetPoint != nil
+	reflex moveToTarget when: target != nil
 	{
-		do goto target:targetPoint speed: 3.0;
+		do goto target:target.location speed: guestSpeed;
 	}
 	
 	/* 
@@ -177,25 +179,25 @@ species Guest skills:[moving]
 	 * The guests will prioritize the attribute that is lower for them,
 	 * if tied then thirst goes first
 	 */
-	reflex infoCenterReached when: targetPoint = infoCenterLocation and location distance_to(targetPoint) < 3
+	reflex infoCenterReached when: target != nil and target.location = infoCenterLocation and location distance_to(target.location) < infoCenterSize
 	{
 		string destinationString <- name  + "getting "; 
 		ask InfoCenter at_distance infoCenterSize
 		{
 			if(myself.thirst <= myself.hunger)
 			{
-				myself.targetPoint <- drinkStoreLocs[rnd(length(drinkStoreLocs)-1)].location;
+				myself.target <- drinkStoreLocs[rnd(length(drinkStoreLocs)-1)];
 				destinationString <- destinationString + "drink at ";
 				myself.goingToDrinkStore <- true;
 			}
 			else
 			{
-				myself.targetPoint <- foodStoreLocs[rnd(length(foodStoreLocs)-1)].location;
+				myself.target <- foodStoreLocs[rnd(length(foodStoreLocs)-1)];
 				destinationString <- destinationString + "food at ";
 				myself.goingToFoodStore <- true;
 			}
 			
-			write destinationString + myself.targetPoint;
+			write destinationString + myself.target.name;
 		}
 	}
 	
@@ -205,7 +207,7 @@ species Guest skills:[moving]
 	 * since it tests for targetPoint adn goingToStore, but those are independent of eachother
 	 * TODO: add some interaction with the store maybe
 	 */
-	reflex storeReached when: (goingToFoodStore = true or goingToDrinkStore = true) and location distance_to(targetPoint) < 3 
+	reflex storeReached when: (goingToFoodStore = true or goingToDrinkStore = true) and location distance_to(target.location) < 3 
 	{
 		if(goingToFoodStore = true) {
 			goingToFoodStore <- false;
@@ -216,13 +218,20 @@ species Guest skills:[moving]
 			thirst <- 100;
 		}
 		
-		targetPoint <- nil;
+		target <- nil;
 	}
 	
 }// Guest end
 
+/*Parent Building */
+species Building
+{
+	
+}
+
 /* InfoCenter serves info with the ask function */
-species InfoCenter {
+species InfoCenter parent: Building
+{
 	// Get every store within 1000, should be enough	
 	list<FoodStore> foodStoreLocs <- (FoodStore at_distance 1000);
 	list<DrinkStore> drinkStoreLocs <- (DrinkStore at_distance 1000);
@@ -258,8 +267,12 @@ species InfoCenter {
 				Guest badGuest <- self;
 				ask Security
 				{
-					self.target <- badGuest;
+					if(!(self.targets contains badGuest))
+					{
+						self.targets <+ badGuest;	
+					}
 				}
+				write 'InfoCenter found a bad guest, sending RoboCop after it';
 			}
 		}
 	}
@@ -268,7 +281,7 @@ species InfoCenter {
 /* 
  * These stores replenish guests' hunger. The info center keeps a list of food stores.
  */
-species FoodStore
+species FoodStore parent: Building
 {
 	aspect default
 	{
@@ -279,7 +292,7 @@ species FoodStore
 /* 
  * These stores replenish guests' thirst. The info center keeps a list of drink stores.
  */
-species DrinkStore
+species DrinkStore parent: Building
 {	
 	aspect default
 	{
@@ -292,25 +305,37 @@ species DrinkStore
  */
 species Security skills:[moving]
 {
-	Guest target <- nil;
+	list<Guest> targets <- [];
+	//int currentTarget <- 0;
 	aspect default
 	{
-		draw cube(3) at: location color: #black;
+		draw cube(5) at: location color: #black;
 	}
 	
-	reflex catchBadGuest when: target != nil
+	//reflex catchBadGuest when: length(targets) > currentTarget and !dead(targets[currentTarget])
+	reflex catchBadGuest when: length(targets) > 0
 	{
-		do goto target:target.location speed: 4.0;
+		do goto target:(targets[0].location) speed: roboCopSpeed;
 	}
 	
-	reflex badGuestCaught when: target != nil and location distance_to(target) < 0.5
+	//reflex badGuestCaught when: length(targets) > currentTarget and !dead(targets[currentTarget])
+	reflex badGuestCaught when: length(targets) > 0 
 	{
-		target <- nil;
-		ask Guest at_distance 0.5
+		if(dead(targets[0]))
 		{
-			write name + ': exterminated by Robocop!';
-			do die;
+			targets >- first(targets);
 		}
+		else if(location distance_to(targets[0].location) < 0.2)
+		{
+			ask targets[0]
+			{
+				write name + ': exterminated by Robocop!';
+				do die;
+			}
+			targets >- first(targets);	
+		}
+		// >- 0;// targets <- currentTarget + 1;
+		
 	}	
 }
 
@@ -325,7 +350,7 @@ experiment main type: gui
 			species FoodStore;
 			species DrinkStore;
 			species InfoCenter;
-
+			
 			species Security;
 		}
 	}
