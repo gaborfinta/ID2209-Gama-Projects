@@ -11,14 +11,23 @@ global
 	 * Configs
 	 */
 	int GuestNumber <- rnd(10)+10;
+	//int GuestNumber <- 1;
 	int FoodStoreNumber <- rnd(2,3);
 	int DrinkStoreNumber <- rnd(2,3);
+	int ambulanceNumber <- 2;
 	int infoCenterSize <- 5;
 	point infoCenterLocation <- {50,50};
-	float guestSpeed <- 1.0;
+	float guestSpeed <- 0.5;
 	// the rate at which guests grow hungry / thirsty
-	int hungerRate <- 1;
-	float roboCopSpeed <- 1.8;
+	// every reflex we reduce hunger / thirst by rnd(0,rate) * 0.1
+	int hungerRate <- 5;
+	//float roboCopSpeed <- 1.8;
+	// Robotcop is a bit faster than guests
+	float roboCopSpeed <- guestSpeed * 1.5;
+	
+	// Set in variable so the ambulances can be created next to it
+	point hospitalLocation <- {rnd(50),rnd(50)};
+	
 	
 	init
 	{
@@ -58,6 +67,18 @@ global
 		{
 
 		}
+		
+		/* Create hospital */
+		create Hospital number: 1
+		{
+			
+		}
+		
+		/* Create ambulance */
+		create Ambulance number: ambulanceNumber
+		{
+			
+		}
 	}
 	
 }
@@ -74,8 +95,8 @@ global
  */
 species Guest skills:[moving]
 {
-	int thirst <- rnd(50)+50;
-	int hunger <- rnd(50)+50;
+	float thirst <- rnd(50)+50.0;
+	float hunger <- rnd(50)+50.0;
 	int guestId <- rnd(1000,10000);
 
 	// Bad apples are removed by robocop and are darker in color
@@ -100,14 +121,14 @@ species Guest skills:[moving]
 	}
 	
 	/* 
-	 * Reduce thirst and hunger with a random value between 0 and 5
+	 * Reduce thirst and hunger with a random value between 0 and 0.5
 	 * Once agent's thirst or hunger reaches below 50, they will head towards info/Store
 	 */
 	reflex alwaysThirstyAlwaysHungry
 	{
 		/* Reduce thirst and hunger */
-		thirst <- (thirst - rnd(hungerRate));
-		hunger <- (hunger - rnd(hungerRate));
+		thirst <- thirst - rnd(hungerRate)*0.1;
+		hunger <- hunger - rnd(hungerRate)*0.1;
 		
 		// This is used to decide which store to prefer in case of draw. Default is drink.
 		bool getFood <- false;
@@ -126,9 +147,11 @@ species Guest skills:[moving]
 		 * 
 		 * Agents can hold two stores in memory
 		 * (typically these will be 1 drink and 1 food due to how the agents' grow thirsty/hungry),
-		 * and will check if the stores in their memory hace the thing they want (food/drink) 
+		 * and will check if the stores in their memory hace the thing they want (food/drink)
+		 * 
+		 * Only conscious agents will react to their thirst/hunger 
 		 */
-		if(target = nil and (thirst < 50 or hunger < 50))
+		if(target = nil and (thirst < 50 or hunger < 50) and isConscious)
 		{	
 			string destinationMessage <- name; 
 
@@ -192,12 +215,13 @@ species Guest skills:[moving]
 	}
 	
 	/*
-	 * if a guest's thirst or hunger <= 0, then the guest dies
-	 * TODO: replace dying with fainting and implement ambulances
+	 * if a guest's thirst or hunger <= 0, then the guest faints
+	 * only conscious guests can faint
 	 */
-	reflex thenPerish when: (thirst <= 0 or hunger <= 0)
+	reflex thenPerish when: (thirst <= 0 or hunger <= 0) and isConscious
 	{
-		string perishMessage <- name + " perished";
+		
+		string perishMessage <- name + " fainted";
 		
 		if(thirst <= 0)
 		{
@@ -209,19 +233,26 @@ species Guest skills:[moving]
 		}
 		
 		write perishMessage;
-		do die;
+		isConscious <- false;
+		color <- #yellow;
+		target <- nil;
+		
+		//do die;
 	}
 
 	/* 
-	 * Agent's default behavior when target not set
+	 * Agent's default behavior when target not set and they are conscious
 	 * TODO: Do something more exciting here maybe
 	 */
-	reflex beIdle when: target = nil
+	reflex beIdle when: target = nil and isConscious
 	{
 		do wander;
 	}
 	
-	/* When agent has target, move towards target */
+	/* 
+	 * When agent has target, move towards target
+	 * note: unconscious guests can still move, just to enable them moving to the hospital
+	 */
 	reflex moveToTarget when: target != nil
 	{
 		do goto target:target.location speed: guestSpeed;
@@ -277,12 +308,12 @@ species Guest skills:[moving]
 			string replenishString <- myself.name;	
 			if(sellsFood = true)
 			{
-				myself.hunger <- 100;
+				myself.hunger <- 100.0;
 				replenishString <- replenishString + " ate food at " + name;
 			}
 			else if(sellsDrink = true)
 			{
-				myself.thirst <- 100;
+				myself.thirst <- 100.0;
 				replenishString <- replenishString + " had a drink at " + name;
 			}
 			
@@ -383,12 +414,134 @@ species DrinkStore parent: Building
 	}
 }
 
+species Hospital parent: Building
+{	
+	aspect default
+	{
+		draw cube(5) at: location color: #teal;
+	}
+	
+	list<Guest> unconsciousGuests <- [];
+	list<Guest> underTreatment <- [];
+	
+	reflex checkForUnconsciousGuest
+	{
+		ask Guest
+		{
+			if(isConscious = false)
+			{
+				if(!(myself.unconsciousGuests contains self) and !(myself.underTreatment contains self))
+				{
+					myself.unconsciousGuests <+ self;
+					write "added to unconsciousGuests";
+				}
+			}
+		}
+	}
+	
+	/*
+	 * Whenever there is an ambulance nearby and it has no target,
+	 * give it a target from unconsciousGuests
+	 * 
+	 * remove from unconsciousGuests, add to underTreatment
+	 * this is so that the unconscious guest doesn't get re-added to the list,
+	 * while the ambulance is on its way
+	 */
+	reflex dispatchAmbulance when: length(unconsciousGuests) > 0
+	{
+		ask Ambulance at_distance 0
+		{
+			if(targetGuest = nil)
+			{
+				loop tg from: 0 to: length(myself.unconsciousGuests) - 1
+				{
+					if(myself.unconsciousGuests[tg].isConscious = false and !(myself.underTreatment contains myself.unconsciousGuests[tg]))
+					{
+						targetGuest <- myself.unconsciousGuests[tg];
+						write name + " dispatched for " + myself.unconsciousGuests[tg].name; 
+						myself.underTreatment <+ myself.unconsciousGuests[tg];
+						break;
+					}
+				}
+			}
+		}
+	}
+	
+	reflex reviveGuest when: length(underTreatment) > 0
+	{
+		ask Guest at_distance 0
+		{
+			if(isConscious = false)
+			{
+				color <- #red;
+				hunger <- 100.0;
+				thirst <- 100.0;
+				isConscious <- true;
+				target <- nil;
+				write name + " revived!";
+				
+				myself.underTreatment >- self;
+				myself.unconsciousGuests >- self;
+				write name + " removed from underTreatment";
+			}
+		}
+		
+		ask Ambulance at_distance 0
+		{
+			if(deliveringGuest = true)
+			{
+				deliveringGuest <- false;
+				targetGuest <- nil;
+			}
+		}
+		
+	}
+}
+
+species Ambulance skills:[moving]
+{
+	Guest targetGuest <- nil;
+	Building hospital <- one_of(Hospital);
+	bool deliveringGuest <- false;
+	
+	aspect default
+	{
+		draw sphere(2) at: location color: #teal;
+	}
+
+	// Causes ambulance to go to the hospital when no target is set
+	reflex idleAtHospital when: targetGuest = nil
+	{
+		do goto target:(hospital.location) speed: roboCopSpeed;
+	}
+
+	reflex gotoFaintedGuest when: targetGuest != nil
+	{
+		do goto target:(targetGuest.location) speed: roboCopSpeed;
+	}
+	
+	reflex collectFaintedGuest when: targetGuest != nil
+	{
+		if(location distance_to(targetGuest.location) < 1)
+		{	
+			// Set's the guest's target to hospital
+			// (even unconscious guests can move)
+			ask targetGuest
+			{
+				target <- myself.hospital;
+			}
+			do goto target:(hospital.location) speed: guestSpeed;
+			deliveringGuest <- true;
+		}
+	}	
+}// Ambulance end
+
 /*
  * This is the bouncer that goes around killing bad agents
  */
 species Security skills:[moving]
 {
-	list<Guest> targets <- [];
+	list<Guest> targets;
 	aspect default
 	{
 		draw cube(5) at: location color: #black;
@@ -415,8 +568,8 @@ species Security skills:[moving]
 			do die;
 		}
 		targets >- first(targets);
-	}	
-}
+	}
+}//Security end
 
 experiment main type: gui
 {
@@ -431,6 +584,8 @@ experiment main type: gui
 			species InfoCenter;
 			
 			species Security;
+			species Hospital;
+			species Ambulance;
 		}
 	}
 }
