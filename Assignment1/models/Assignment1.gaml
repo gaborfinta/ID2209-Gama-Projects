@@ -17,7 +17,7 @@ global
 	point infoCenterLocation <- {50,50};
 	float guestSpeed <- 1.0;
 	// the rate at which guests grow hungry / thirsty
-	int hungerRate <- 2;
+	int hungerRate <- 1;
 	float roboCopSpeed <- 1.8;
 	
 	init
@@ -30,7 +30,7 @@ global
 		
 				
 		/*
-		 * Number of stores id defined above 
+		 * Number of stores is defined above 
 		 */
 		create FoodStore number: FoodStoreNumber
 		{
@@ -78,6 +78,7 @@ species Guest skills:[moving]
 	int hunger <- rnd(50)+50;
 	int guestId <- rnd(1000,10000);
 
+	// Bad apples are removed by robocop and are darker in color
 	bool isBad <- flip(0.2);
 	rgb color <- #red;
 
@@ -89,7 +90,7 @@ species Guest skills:[moving]
 	/* Default target to move towards */
 	Building target <- nil;
 	
-	/* Bad agents are colored differently */
+	/* Bad apples are colored differently */
 	aspect default
 	{
 		if(isBad) {
@@ -113,19 +114,29 @@ species Guest skills:[moving]
 		
 		/* 
 		 * If agent has no target and either thirst or hunger is less than 50
-		 * then set targetPoint to infoCenterLocation
+		 * then either head to info center, or directly to store
 		 * 
-		 * Despite the log messages being different here,
-		 * the agent actually decides where to head once it reaches the info center
+		 * Once agent visits info center,
+		 * the store they're given will be added to guestBrain,
+		 * which is a list of stores.
 		 * 
-		 * TODO: if agent knows location of store, set that as the targetPoint 
+		 * The next time the agent is thirsty / hungry,
+		 * agent then has 50% chance of either drawing an appropriate store from memory,
+		 * or heading to info center as usual.
+		 * 
+		 * Agents can hold two stores in memory
+		 * (typically these will be 1 drink and 1 food due to how the agents' grow thirsty/hungry),
+		 * and will check if the stores in their memory hace the thing they want (food/drink) 
 		 */
 		if(target = nil and (thirst < 50 or hunger < 50))
 		{	
 			string destinationMessage <- name; 
-			
-			// is agent thirsty, hungry or both.
-			// this is just for constructing the log message
+
+			/*
+			 * Is agent thirsty, hungry or both.
+			 * If hungry, getFood will be set to true,
+			 * otherwise the agent will prefer drink.
+			 */
 			if(thirst < 50 and hunger < 50)
 			{
 				destinationMessage <- destinationMessage + " is thirsty and hungry,";
@@ -143,17 +154,21 @@ species Guest skills:[moving]
 			// Guest has 50% chance of using brain or asking from infocenter
 			bool useBrain <- flip(0.5);
 			
-			// If the guest has locations saved in brain
+			// Only use brain if the guest has locations saved in brain
 			if(length(guestBrain) > 0 and useBrain = true)
 			{
-				// If user is hungry, ask guestBrain for food stores,
-				// in the case of draw and otherwise ask for drink stores
+
 				loop i from: 0 to: length(guestBrain)-1
 				{
+					// If user is hungry, ask guestBrain for food stores,
+					// in the case of draw and otherwise ask for drink stores
 					if(getFood = true and guestBrain[i].sellsFood = true)
 					{
 						target <- guestBrain[i];
 						destinationMessage <- destinationMessage + " (brain used)";
+						
+						// Set getFood back to false, so we'll continue to prefer drink in the future too
+						getFood <- false;
 						break;
 					}
 					else if(getFood = false and guestBrain[i].sellsDrink = true)
@@ -165,14 +180,11 @@ species Guest skills:[moving]
 				}
 			}
 
-			// If no valid store was found above
+			// If no valid store was found in the brain, head to info center
 			if(target = nil)
 			{
 				target <- one_of(InfoCenter);	
 			}
-			
-			// Set getFood back to false so we'll continue to prefer drink in the future too
-			getFood <- false;
 			
 			destinationMessage <- destinationMessage + " heading to " + target.name;
 			write destinationMessage;
@@ -180,7 +192,8 @@ species Guest skills:[moving]
 	}
 	
 	/*
-	 * if a guest's thirst or hunger <= 0, then the guest dies 
+	 * if a guest's thirst or hunger <= 0, then the guest dies
+	 * TODO: replace dying with fainting and implement ambulances
 	 */
 	reflex thenPerish when: (thirst <= 0 or hunger <= 0)
 	{
@@ -201,7 +214,7 @@ species Guest skills:[moving]
 
 	/* 
 	 * Agent's default behavior when target not set
-	 * TODO: Do something more exciting here
+	 * TODO: Do something more exciting here maybe
 	 */
 	reflex beIdle when: target = nil
 	{
@@ -219,7 +232,11 @@ species Guest skills:[moving]
 	 * It is assumed the guests will only head to the info center when either thirsty or hungry
 	 * 
 	 * The guests will prioritize the attribute that is lower for them,
-	 * if tied then thirst goes first
+	 * if tied then thirst goes first.
+	 * This might be different than the reason they decided to head to the info center originally.
+	 * 
+	 * If the guest's brain has space, it will add the store's information to its brain
+	 * This could be the same store it already knows, but the guests are not very smart
 	 */
 	reflex infoCenterReached when: target != nil and target.location = infoCenterLocation and location distance_to(target.location) < infoCenterSize
 	{
@@ -248,15 +265,13 @@ species Guest skills:[moving]
 	}
 	
 	/*
-	 * When the agent reaches a store, it asks what does the store replenish
+	 * When the agent reaches a building, it asks what does the store replenish
 	 * Guests are foxy, opportunistic beasts and will attempt to refill their parameters at every destination
 	 * Yes, guests will even try to eat at the info center
 	 * Such ravenous guests
-	 * TODO: after a successfull interaction, add the store to the guest's memory
 	 */
 	reflex isThisAStore when: target != nil and location distance_to(target.location) < 2
 	{
-		// TODO: check if destination sells food
 		ask target
 		{
 			string replenishString <- myself.name;	
@@ -270,10 +285,6 @@ species Guest skills:[moving]
 				myself.thirst <- 100;
 				replenishString <- replenishString + " had a drink at " + name;
 			}
-			
-			// TODO: add store to guestBrain
-			
-			//if(empty(myself.guestBrain) or length(myself.guestBrain) < 2)
 			
 			write replenishString;
 		}
