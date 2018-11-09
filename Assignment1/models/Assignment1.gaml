@@ -14,7 +14,6 @@ global
 	//int GuestNumber <- 1;
 	int FoodStoreNumber <- rnd(2,3);
 	int DrinkStoreNumber <- rnd(2,3);
-	int ambulanceNumber <- 2;
 	int infoCenterSize <- 5;
 	point infoCenterLocation <- {50,50};
 	float guestSpeed <- 0.5;
@@ -24,10 +23,6 @@ global
 	//float roboCopSpeed <- 1.8;
 	// Robotcop is a bit faster than guests
 	float roboCopSpeed <- guestSpeed * 1.5;
-	
-	// Set in variable so the ambulances can be created next to it
-	point hospitalLocation <- {rnd(50),rnd(50)};
-	
 	
 	init
 	{
@@ -61,24 +56,6 @@ global
 		{
 			location <- infoCenterLocation;
 		}
-			
-		/* Create security */
-		create Security number: 1
-		{
-
-		}
-		
-		/* Create hospital */
-		create Hospital number: 1
-		{
-			
-		}
-		
-		/* Create ambulance */
-		create Ambulance number: ambulanceNumber
-		{
-			
-		}
 	}
 	
 }
@@ -99,8 +76,6 @@ species Guest skills:[moving]
 	float hunger <- rnd(50)+50.0;
 	int guestId <- rnd(1000,10000);
 
-	// Bad apples are removed by robocop and are darker in color
-	bool isBad <- flip(0.2);
 	rgb color <- #red;
 
 		
@@ -114,9 +89,6 @@ species Guest skills:[moving]
 	/* Bad apples are colored differently */
 	aspect default
 	{
-		if(isBad) {
-			color <- #darkred;
-		}
 		draw sphere(2) at: location color: color;
 	}
 	
@@ -173,71 +145,12 @@ species Guest skills:[moving]
 				destinationMessage <- destinationMessage + " is hungry,";
 				getFood <- true;
 			}
-			
-			// Guest has 50% chance of using brain or asking from infocenter
-			bool useBrain <- flip(0.5);
-			
-			// Only use brain if the guest has locations saved in brain
-			if(length(guestBrain) > 0 and useBrain = true)
-			{
 
-				loop i from: 0 to: length(guestBrain)-1
-				{
-					// If user is hungry, ask guestBrain for food stores,
-					// in the case of draw and otherwise ask for drink stores
-					if(getFood = true and guestBrain[i].sellsFood = true)
-					{
-						target <- guestBrain[i];
-						destinationMessage <- destinationMessage + " (brain used)";
-						
-						// Set getFood back to false, so we'll continue to prefer drink in the future too
-						getFood <- false;
-						break;
-					}
-					else if(getFood = false and guestBrain[i].sellsDrink = true)
-					{
-						target <- guestBrain[i];
-						destinationMessage <- destinationMessage + " (brain used)";
-						break;
-					}
-				}
-			}
-
-			// If no valid store was found in the brain, head to info center
-			if(target = nil)
-			{
-				target <- one_of(InfoCenter);	
-			}
+			target <- one_of(InfoCenter);
 			
 			destinationMessage <- destinationMessage + " heading to " + target.name;
 			write destinationMessage;
 		}
-	}
-	
-	/*
-	 * if a guest's thirst or hunger <= 0, then the guest faints
-	 * only conscious guests can faint
-	 */
-	reflex thenPerish when: (thirst <= 0 or hunger <= 0) and isConscious
-	{
-		
-		string perishMessage <- name + " fainted";
-		
-		if(thirst <= 0)
-		{
-			perishMessage <- perishMessage + " of thirst.";
-		}
-		else if(hunger <= 0)
-		{
-			perishMessage <- perishMessage + " of hunger.";
-		}
-		
-		write perishMessage;
-		isConscious <- false;
-		color <- #yellow;
-		target <- nil;
-		
-		//do die;
 	}
 
 	/* 
@@ -283,12 +196,6 @@ species Guest skills:[moving]
 			{
 				myself.target <- foodStoreLocs[rnd(length(foodStoreLocs)-1)];
 				destinationString <- destinationString + "food at ";
-			}
-			
-			if(length(myself.guestBrain) < 2)
-			{
-				myself.guestBrain <+ myself.target;
-				destinationString <- destinationString + "(added to brain) ";
 			}
 			
 			write destinationString + myself.target.name;
@@ -368,24 +275,6 @@ species InfoCenter parent: Building
 		draw cube(5) at: location color: #blue;
 	}
 
-	reflex checkForBadGuest
-	{
-		ask Guest at_distance infoCenterSize
-		{
-			if(self.isBad)
-			{
-				Guest badGuest <- self;
-				ask Security
-				{
-					if(!(self.targets contains badGuest))
-					{
-						self.targets <+ badGuest;	
-					}
-				}
-				write 'InfoCenter found a bad guest, sending RoboCop after it';
-			}
-		}
-	}
 }// InfoCenter end
 
 /* 
@@ -414,163 +303,6 @@ species DrinkStore parent: Building
 	}
 }
 
-species Hospital parent: Building
-{	
-	aspect default
-	{
-		draw cube(5) at: location color: #teal;
-	}
-	
-	list<Guest> unconsciousGuests <- [];
-	list<Guest> underTreatment <- [];
-	
-	reflex checkForUnconsciousGuest
-	{
-		ask Guest
-		{
-			if(isConscious = false)
-			{
-				if(!(myself.unconsciousGuests contains self) and !(myself.underTreatment contains self))
-				{
-					myself.unconsciousGuests <+ self;
-					write "added to unconsciousGuests";
-				}
-			}
-		}
-	}
-	
-	/*
-	 * Whenever there is an ambulance nearby and it has no target,
-	 * give it a target from unconsciousGuests
-	 * 
-	 * remove from unconsciousGuests, add to underTreatment
-	 * this is so that the unconscious guest doesn't get re-added to the list,
-	 * while the ambulance is on its way
-	 */
-	reflex dispatchAmbulance when: length(unconsciousGuests) > 0
-	{
-		ask Ambulance at_distance 0
-		{
-			if(targetGuest = nil)
-			{
-				loop tg from: 0 to: length(myself.unconsciousGuests) - 1
-				{
-					if(myself.unconsciousGuests[tg].isConscious = false and !(myself.underTreatment contains myself.unconsciousGuests[tg]))
-					{
-						targetGuest <- myself.unconsciousGuests[tg];
-						write name + " dispatched for " + myself.unconsciousGuests[tg].name; 
-						myself.underTreatment <+ myself.unconsciousGuests[tg];
-						break;
-					}
-				}
-			}
-		}
-	}
-	
-	reflex reviveGuest when: length(underTreatment) > 0
-	{
-		ask Guest at_distance 0
-		{
-			if(isConscious = false)
-			{
-				color <- #red;
-				hunger <- 100.0;
-				thirst <- 100.0;
-				isConscious <- true;
-				target <- nil;
-				write name + " revived!";
-				
-				myself.underTreatment >- self;
-				myself.unconsciousGuests >- self;
-				write name + " removed from underTreatment";
-			}
-		}
-		
-		ask Ambulance at_distance 0
-		{
-			if(deliveringGuest = true)
-			{
-				deliveringGuest <- false;
-				targetGuest <- nil;
-			}
-		}
-		
-	}
-}
-
-species Ambulance skills:[moving]
-{
-	Guest targetGuest <- nil;
-	Building hospital <- one_of(Hospital);
-	bool deliveringGuest <- false;
-	
-	aspect default
-	{
-		draw sphere(2) at: location color: #teal;
-	}
-
-	// Causes ambulance to go to the hospital when no target is set
-	reflex idleAtHospital when: targetGuest = nil
-	{
-		do goto target:(hospital.location) speed: roboCopSpeed;
-	}
-
-	reflex gotoFaintedGuest when: targetGuest != nil
-	{
-		do goto target:(targetGuest.location) speed: roboCopSpeed;
-	}
-	
-	reflex collectFaintedGuest when: targetGuest != nil
-	{
-		if(location distance_to(targetGuest.location) < 1)
-		{	
-			// Set's the guest's target to hospital
-			// (even unconscious guests can move)
-			ask targetGuest
-			{
-				target <- myself.hospital;
-			}
-			do goto target:(hospital.location) speed: guestSpeed;
-			deliveringGuest <- true;
-		}
-	}	
-}// Ambulance end
-
-/*
- * This is the bouncer that goes around killing bad agents
- */
-species Security skills:[moving]
-{
-	list<Guest> targets;
-	aspect default
-	{
-		draw cube(5) at: location color: #black;
-	}
-	
-	reflex catchBadGuest when: length(targets) > 0
-	{
-		//this is needed in case the guest dies before robocop catches them
-		if(dead(targets[0]))
-		{
-			targets >- first(targets);
-		}
-		else
-		{
-			do goto target:(targets[0].location) speed: roboCopSpeed;
-		}
-	}
-	
-	reflex badGuestCaught when: length(targets) > 0 and !dead(targets[0]) and location distance_to(targets[0].location) < 0.2
-	{
-		ask targets[0]
-		{
-			write name + ': exterminated by Robocop!';
-			do die;
-		}
-		targets >- first(targets);
-	}
-}//Security end
-
 experiment main type: gui
 {
 	
@@ -582,10 +314,6 @@ experiment main type: gui
 			species FoodStore;
 			species DrinkStore;
 			species InfoCenter;
-			
-			species Security;
-			species Hospital;
-			species Ambulance;
 		}
 	}
 }
