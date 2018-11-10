@@ -379,10 +379,10 @@ species InfoCenter parent: Building
 				{
 					if(!(self.targets contains badGuest))
 					{
-						self.targets <+ badGuest;	
+						self.targets <+ badGuest;
+						write 'InfoCenter found a bad guest (' + badGuest.name + '), sending RoboCop after it';	
 					}
 				}
-				write 'InfoCenter found a bad guest, sending RoboCop after it';
 			}
 		}
 	}
