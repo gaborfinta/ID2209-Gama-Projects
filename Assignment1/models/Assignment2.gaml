@@ -10,8 +10,8 @@ global
 	/*
 	 * Guest configs
 	 */
-	int guestNumber <- rnd(10)+10;
-	//int guestNumber <- 1;
+	//int guestNumber <- rnd(10)+10;
+	int guestNumber <- 1;
 	float guestSpeed <- 0.5;
 	
 	// the rate at which guests grow hungry / thirsty
@@ -29,7 +29,7 @@ global
 	int foodStoreNumber <- rnd(2,3);
 	int drinkStoreNumber <- rnd(2,3);
 	int auctionerNumber <- 1;
-	int infoCenterSize <- 5;
+	int infoCenterDetectionDistance <- 0;
 	point infoCenterLocation <- {50,50};
 	
 	/*
@@ -157,9 +157,6 @@ species Guest skills:[moving, fipa]
 		thirst <- thirst - rnd(hungerRate)*0.1;
 		hunger <- hunger - rnd(hungerRate)*0.1;
 		
-		// This is used to decide which store to prefer in case of draw. Default is drink.
-		bool getFood <- false;
-		
 		/* 
 		 * If agent has no target and either thirst or hunger is less than 50
 		 * then either head to info center, or directly to store
@@ -184,8 +181,7 @@ species Guest skills:[moving, fipa]
 
 			/*
 			 * Is agent thirsty, hungry or both.
-			 * If hungry, getFood will be set to true,
-			 * otherwise the agent will prefer drink.
+			 * Guests will prefer drink over food
 			 */
 			if(thirst < 50 and hunger < 50)
 			{
@@ -198,7 +194,6 @@ species Guest skills:[moving, fipa]
 			else if(hunger < 50)
 			{
 				destinationMessage <- destinationMessage + " is hungry,";
-				getFood <- true;
 			}
 			
 			// Guest has 50% chance of using brain or asking from infocenter
@@ -212,16 +207,13 @@ species Guest skills:[moving, fipa]
 				{
 					// If user is hungry, ask guestBrain for food stores,
 					// in the case of draw and otherwise ask for drink stores
-					if(getFood = true and guestBrain[i].sellsFood = true)
+					if(thirst > hunger and guestBrain[i].sellsFood = true)
 					{
 						target <- guestBrain[i];
 						destinationMessage <- destinationMessage + " (brain used)";
-						
-						// Set getFood back to false, so we'll continue to prefer drink in the future too
-						getFood <- false;
 						break;
 					}
-					else if(getFood = false and guestBrain[i].sellsDrink = true)
+					else if(thirst <= hunger and guestBrain[i].sellsDrink = true)
 					{
 						target <- guestBrain[i];
 						destinationMessage <- destinationMessage + " (brain used)";
@@ -263,8 +255,6 @@ species Guest skills:[moving, fipa]
 		isConscious <- false;
 		color <- #yellow;
 		target <- nil;
-		
-		//do die;
 	}
 
 	/* 
@@ -296,10 +286,10 @@ species Guest skills:[moving, fipa]
 	 * If the guest's brain has space, it will add the store's information to its brain
 	 * This could be the same store it already knows, but the guests are not very smart
 	 */
-	reflex infoCenterReached when: target != nil and target.location = infoCenterLocation and location distance_to(target.location) < infoCenterSize
+	reflex infoCenterReached when: target != nil and target.location = infoCenterLocation and location distance_to(target.location) <= infoCenterDetectionDistance
 	{
 		string destinationString <- name  + " getting "; 
-		ask InfoCenter at_distance infoCenterSize
+		ask InfoCenter at_distance infoCenterDetectionDistance
 		{
 			if(myself.thirst <= myself.hunger)
 			{
@@ -413,7 +403,7 @@ species InfoCenter parent: Building
 
 	reflex checkForBadGuest
 	{
-		ask Guest at_distance infoCenterSize
+		ask Guest at_distance infoCenterDetectionDistance
 		{
 			if(self.isBad)
 			{
@@ -425,7 +415,7 @@ species InfoCenter parent: Building
 						self.targets <+ badGuest;	
 					}
 				}
-				write 'InfoCenter found a bad guest, sending RoboCop after it';
+				write name + " to Robocop's list";
 			}
 		}
 	}
@@ -479,7 +469,7 @@ species Hospital parent: Building
 				if(!(myself.unconsciousGuests contains self) and !(myself.underTreatment contains self))
 				{
 					myself.unconsciousGuests <+ self;
-					write "added to unconsciousGuests";
+					write name + "added to unconsciousGuests";
 				}
 			}
 		}
@@ -495,7 +485,7 @@ species Hospital parent: Building
 	 */
 	reflex dispatchAmbulance when: length(unconsciousGuests) > 0
 	{
-		ask Ambulance at_distance 0
+		ask Ambulance at_distance infoCenterDetectionDistance
 		{
 			if(targetGuest = nil)
 			{
@@ -518,7 +508,7 @@ species Hospital parent: Building
 	 */
 	reflex reviveGuest when: length(underTreatment) > 0
 	{
-		ask Guest at_distance 0
+		ask Guest at_distance infoCenterDetectionDistance
 		{
 			if(isConscious = false)
 			{
@@ -534,7 +524,6 @@ species Hospital parent: Building
 				thirst <- 100.0;
 				isConscious <- true;
 				target <- nil;
-				write name + " revived!";
 				
 				myself.underTreatment >- self;
 				myself.unconsciousGuests >- self;
@@ -545,7 +534,7 @@ species Hospital parent: Building
 		/*
 		 * TODO: document
 		 */
-		ask Ambulance at_distance 0
+		ask Ambulance at_distance infoCenterDetectionDistance
 		{
 			if(deliveringGuest = true)
 			{
@@ -570,8 +559,9 @@ species Auctioner skills:[fipa]
 	{
 		draw pyramid(10) at: location color: #pink;
 	}
+	bool dont <- false;
 		
-	reflex send_request when: (time = 50) {
+	reflex send_request when: dont {
 		//list<participant> participants <- list(participant);
 		
 		write "" + time + ": " + name + ' sends a cfp message to all guests';
@@ -641,7 +631,6 @@ species Ambulance skills:[moving]
 				target <- myself.hospital;
 			}
 			do goto target:(hospital.location) speed: guestSpeed;
-			deliveringGuest <- true;
 		}
 	}	
 }// Ambulance end
