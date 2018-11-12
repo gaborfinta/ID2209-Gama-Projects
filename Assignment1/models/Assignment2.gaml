@@ -8,31 +8,43 @@ model NewModel
 global 
 {
 	/*
-	 * Configs
+	 * Guest configs
 	 */
-	int GuestNumber <- rnd(10)+10;
-	//int GuestNumber <- 1;
-	int FoodStoreNumber <- rnd(2,3);
-	int DrinkStoreNumber <- rnd(2,3);
-	int ambulanceNumber <- 2;
-	int infoCenterSize <- 5;
-	point infoCenterLocation <- {50,50};
+	int guestNumber <- rnd(10)+10;
+	//int guestNumber <- 1;
 	float guestSpeed <- 0.5;
+	
 	// the rate at which guests grow hungry / thirsty
 	// every reflex we reduce hunger / thirst by rnd(0,rate) * 0.1
 	int hungerRate <- 5;
-	//float roboCopSpeed <- 1.8;
-	// Robotcop is a bit faster than guests
-	float roboCopSpeed <- guestSpeed * 1.5;
 	
-	// Set in variable so the ambulances can be created next to it
-	point hospitalLocation <- {rnd(50),rnd(50)};
+	// These are for the merchandice and buying.
+	// acceptedPriceMin/Max are for setting the guest's preferred price for the merch 
+	int acceptedPriceMin <- 10;
+	int acceptedPriceMax <- 100;
+	
+	/*
+	 * Building configs
+	 */
+	int foodStoreNumber <- rnd(2,3);
+	int drinkStoreNumber <- rnd(2,3);
+	int auctionerNumber <- 1;
+	int infoCenterSize <- 5;
+	point infoCenterLocation <- {50,50};
+	
+	/*
+	 * Other agent configs
+	 */	
+	// Robotcop is a bit faster than guests, also used by ambulances
+	float roboCopSpeed <- guestSpeed * 1.5;
+	int ambulanceNumber <- 2;
+
 	
 	
 	init
 	{
-		/* Create GuestNumber (defined above) amount of Guests */
-		create Guest number: GuestNumber
+		/* Create guestNumber (defined above) amount of Guests */
+		create Guest number: guestNumber
 		{
 			
 		}
@@ -41,7 +53,7 @@ global
 		/*
 		 * Number of stores is defined above 
 		 */
-		create FoodStore number: FoodStoreNumber
+		create FoodStore number: foodStoreNumber
 		{
 
 		}
@@ -49,7 +61,7 @@ global
 		/*
 		 * Number of stores id defined above 
 		 */
-		create DrinkStore number: DrinkStoreNumber
+		create DrinkStore number: drinkStoreNumber
 		{
 
 		}
@@ -102,27 +114,31 @@ global
  * Guests will wander about until they get either thirsty or hungry, at which point they will start heading towards the info center
  * 
  * Each guest has a random preferred price for merch
- * They will reject offers until their preferred price is reached
- * Upon which they accept
+ * They will reject offers until their preferred price is reached,
+ * upon which moment they accept and buy the merch
  */
 species Guest skills:[moving, fipa]
 {
+	// Default hunger vars
 	float thirst <- rnd(50)+50.0;
 	float hunger <- rnd(50)+50.0;
-
-	// Bad apples are removed by robocop and are darker in color
-	bool isBad <- flip(0.2);
-	rgb color <- #red;
-		
 	bool isConscious <- true;
-	int acceptedPrice <- 100;
 	
+	rgb color <- #red;
+
+	// This is the price at which the guest will buy merch, set in the configs above
+	int acceptedPrice <- rnd(acceptedPriceMin,acceptedPriceMax);
+	// The guests will only buy merch once
+	bool merchBought <- false;
+	
+	// List of remembered buildings
 	list<Building> guestBrain;
-	
-	/* Default target to move towards */
+	// Target to move towards
 	Building target <- nil;
 	
-	/* Bad apples are colored differently */
+	// Some guests are bad apples and are colored differently
+	// They will be removed by the security
+	bool isBad <- flip(0.2);
 	aspect default
 	{
 		if(isBad) {
@@ -441,6 +457,9 @@ species DrinkStore parent: Building
 	}
 }
 
+/*
+ * TODO: document
+ */
 species Hospital parent: Building
 {	
 	aspect default
@@ -494,13 +513,23 @@ species Hospital parent: Building
 		}
 	}
 	
+	/*
+	 * TODO: document
+	 */
 	reflex reviveGuest when: length(underTreatment) > 0
 	{
 		ask Guest at_distance 0
 		{
 			if(isConscious = false)
 			{
-				color <- #red;
+				if(isBad)
+				{
+					color <- #darkred;	
+				}
+				else
+				{
+					color <- #red;	
+				}
 				hunger <- 100.0;
 				thirst <- 100.0;
 				isConscious <- true;
@@ -513,6 +542,9 @@ species Hospital parent: Building
 			}
 		}
 		
+		/*
+		 * TODO: document
+		 */
 		ask Ambulance at_distance 0
 		{
 			if(deliveringGuest = true)
