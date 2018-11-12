@@ -115,12 +115,14 @@ species Guest skills:[moving, fipa]
 	rgb color <- #red;
 		
 	bool isConscious <- true;
-	int acceptedPrice <- 100;
+	int acceptedPrice <- rnd(40, 130);
 	
 	list<Building> guestBrain;
 	
 	/* Default target to move towards */
 	Building target <- nil;
+	
+	bool participatesInAuction <- false;
 	
 	/* Bad apples are colored differently */
 	aspect default
@@ -222,6 +224,22 @@ species Guest skills:[moving, fipa]
 			
 			destinationMessage <- destinationMessage + " heading to " + target.name;
 			write destinationMessage;
+		}
+	}
+	reflex inAuction when: participatesInAuction
+	{
+		hunger <- 100.0;
+		thirst <- 100.0;
+		isConscious <- true;
+		//!!!!!!!!!!!!!!! ONLY WORKS WITH ONE AUCTIONER !!!!!!!!!!!!!!!!!!!!
+		Auctioner auctioner <- one_of(Auctioner);	
+		if(location distance_to(auctioner.location) > 9)
+		{
+			target <- auctioner;
+		}
+		else
+		{
+			target <- nil;
 		}
 	}
 	
@@ -336,16 +354,23 @@ species Guest skills:[moving, fipa]
 	
 	reflex reply_messages when: (!empty(requests))
 	{
+		participatesInAuction <- true;
 		message requestFromInitiator <- (requests at 0);
 		// TODO: maybe define message contents somewhere, rn this works
 		int offer <- int(requestFromInitiator.contents[1]);
-		
-		if (acceptedPrice > offer) {
-			do agree with: (message: requestFromInitiator, contents: ["I, " + name + ", accept your offer of " + offer + ", merchant."]);
+		if(-1 = offer)
+		{
+			participatesInAuction <- false;
 		}
 		else
 		{
-			do failure (message: requestFromInitiator, contents: ["I, " + name + ", already have a house full of crap, you scoundrel!"]);	
+			if (acceptedPrice > offer) {
+				do agree with: (message: requestFromInitiator, contents: ["I, " + name + ", accept your offer of " + offer + ", merchant."]);
+			}
+			else
+			{
+				do refuse (message: requestFromInitiator, contents: ["I, " + name + ", already have a house full of crap, you scoundrel!"]);	
+			}
 		}
 	}
 	
@@ -530,35 +555,60 @@ species Hospital parent: Building
  * TODO:
  * TODO: maybe auctioners buy their own wares from a central storage - use the other auctions for this?
  */
-species Auctioner skills:[fipa]
+species Auctioner skills:[fipa] parent: Building
 {
-	int price <- 50;
-	
+	int price <- rnd(200, 300);
+	int minimumValue <- rnd(80, 130);
+	bool hasItemToSell <- true;
+	bool auctionStarted <- false;
 	aspect
 	{
-		draw pyramid(10) at: location color: #pink;
-	}
-		
-	reflex send_request when: (time = 50) {
-		//list<participant> participants <- list(participant);
-		
-		write "" + time + ": " + name + ' sends a cfp message to all guests';
-		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ['Buy my merch, peasant',price]);
-	}
-
-	reflex receive_agree_messages when: !empty(agrees) {
-		write '(Time ' + time + '): ' + name + ' receives agree messages';
-		
-		loop r over: agrees {
-			write name + ' got agree from ' + r.sender + ': ' + r.contents ;
+		if(time > 50 and hasItemToSell)
+		{
+			draw pyramid(10) at: location color: #pink;
 		}
 	}
 	
-	reflex receive_failure_messages when: !empty(failures) {
+	reflex guestsAreAround when: hasItemToSell and !auctionStarted and (list(Guest) max_of (location distance_to(each.location))) <= 13
+	{
+		auctionStarted <- true;
+	}
+	
+	reflex send_start_auction when: !auctionStarted and time = 50 and hasItemToSell
+	{
+		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ['Auction starting with price: ' + price, price]);
+	}
+		
+	reflex send_request when: auctionStarted and (time > 50 and hasItemToSell) {
+		//list<participant> participants <- list(participant);
+		
+		write "" + time + ": " + name + ' sends the offer of ' + price +' pesos to all guests';
+		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ['Buy my merch, peasant', price]);
+	}
+
+	reflex receive_agree_messages when: auctionStarted and !empty(agrees) and hasItemToSell {
+		write '(Time ' + time + '): ' + name + ' receives agree messages';
+		
+		loop a over: agrees {
+			write name + ' got agree from ' + a.sender + ': ' + a.contents ;
+		}
+		hasItemToSell <- false;
+		//end of auction
+		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ['Buy my merch, peasant', -1]);
+	}
+	
+	reflex receive_refuse_messages when: auctionStarted and !empty(refuses) and hasItemToSell {
 		write '(Time ' + time + '): ' + name + ' receives failure messages';
 		
-		loop r over: failures {
-			write '\t' + name + ' receives a failure message from ' + r.sender + ' with content ' + r.contents ;
+		//loop r over: refuses {
+		//	write '\t' + name + ' receives a failure message from ' + r.sender + ' with content ' + r.contents ;
+		//}
+		
+		price <- price - rnd(5, 15);
+		if(price < minimumValue)
+		{
+			hasItemToSell <- false;
+			write 'Price went below minimum value (' + minimumValue + '). No more auction for thrifty guests!';
 		}
 	}
 
