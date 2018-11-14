@@ -509,7 +509,7 @@ species Hospital parent: Building
 	 * this is so that the unconscious guest doesn't get re-added to the list,
 	 * while the ambulance is on its way
 	 */
-	reflex dispatchAmbulance when: length(unconsciousGuests) > 0
+	reflex dispatchAmbulance when: length(unconsciousGuests) > length(underTreatment)
 	{
 		ask Ambulance at_distance infoCenterDetectionDistance
 		{
@@ -536,7 +536,7 @@ species Hospital parent: Building
 	{
 		ask Guest at_distance infoCenterDetectionDistance
 		{
-			if(isConscious = false)
+			if(myself.underTreatment contains self)
 			{
 				if(isBad)
 				{
@@ -555,6 +555,28 @@ species Hospital parent: Building
 				myself.unconsciousGuests >- self;
 				write name + " removed from underTreatment";
 			}
+			/*
+			if(isConscious = false)
+			{
+				if(isBad)
+				{
+					color <- #darkred;	
+				}
+				else
+				{
+					color <- #red;	
+				}
+				hunger <- 100.0;
+				thirst <- 100.0;
+				isConscious <- true;
+				target <- nil;
+				location <- infoCenterLocation;
+				
+				myself.underTreatment >- self;
+				myself.unconsciousGuests >- self;
+				write name + " removed from underTreatment";
+			}
+			*/
 		}
 		
 		/*
@@ -677,6 +699,7 @@ species Ambulance skills:[moving]
 		{	
 			// Set's the guest's target to hospital
 			// (even unconscious guests can move)
+			deliveringGuest <- true;
 			ask targetGuest
 			{
 				target <- myself.hospital;
