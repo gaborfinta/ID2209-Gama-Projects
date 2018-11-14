@@ -20,8 +20,8 @@ global
 	
 	// These are for the merchandice and buying.
 	// acceptedPriceMin/Max are for setting the guest's preferred price for the merch 
-	int acceptedPriceMin <- 10;
-	int acceptedPriceMax <- 100;
+	int acceptedPriceMin <- 70;
+	int acceptedPriceMax <- 150;
 	
 	/*
 	 * Building configs
@@ -38,6 +38,8 @@ global
 	// Robotcop is a bit faster than guests, also used by ambulances
 	float roboCopSpeed <- guestSpeed * 1.5;
 	int ambulanceNumber <- 2;
+	
+	list<string> auctionTypes <- ["Dutch", "English"];
 
 	
 	
@@ -127,7 +129,7 @@ species Guest skills:[moving, fipa]
 	rgb color <- #red;
 
 	// This is the price at which the guest will buy merch, set in the configs above
-	int acceptedPrice <- rnd(acceptedPriceMin,acceptedPriceMax);
+	int maxAcceptedPrice <- rnd(acceptedPriceMin,acceptedPriceMax);
 	// The guests will only buy merch once
 	bool merchBought <- false;
 	
@@ -240,6 +242,7 @@ species Guest skills:[moving, fipa]
 		hunger <- 100.0;
 		thirst <- 100.0;
 		isConscious <- true;
+		
 		//!!!!!!!!!!!!!!! ONLY WORKS WITH ONE AUCTIONER !!!!!!!!!!!!!!!!!!!!
 		Auctioner auctioner <- one_of(Auctioner);	
 		if(location distance_to(auctioner.location) > 9)
@@ -359,24 +362,71 @@ species Guest skills:[moving, fipa]
 		target <- nil;
 	}
 	
-	reflex reply_messages when: (!empty(requests))
+	reflex listen_messages when: (!empty(cfps))
 	{
-		participatesInAuction <- true;
-		message requestFromInitiator <- (requests at 0);
-		// TODO: maybe define message contents somewhere, rn this works
-		int offer <- int(requestFromInitiator.contents[1]);
-		if(-1 = offer)
+		
+		message requestFromInitiator <- (cfps at 0);
+		if(requestFromInitiator.contents[0] = 'Start')
+		{
+			participatesInAuction <- true;
+		}
+		else if(requestFromInitiator.contents[0] = 'Stop')
 		{
 			participatesInAuction <- false;
 		}
-		else
+	}
+	
+	reflex reply_messages when: (!empty(proposes))
+	{
+		message requestFromInitiator <- (proposes at 0);
+		// TODO: maybe define message contents somewhere, rn this works
+		string auctionType <- requestFromInitiator.contents[1];
+		if(auctionType = "Dutch")
 		{
-			if (acceptedPrice > offer) {
-				do agree with: (message: requestFromInitiator, contents: ["I, " + name + ", accept your offer of " + offer + ", merchant."]);
+			int offer <- int(requestFromInitiator.contents[2]);
+			if (maxAcceptedPrice >= offer) {
+				do accept_proposal with: (message: requestFromInitiator, contents: ["I, " + name + ", accept your offer of " + offer + ", merchant."]);
 			}
 			else
 			{
-				do refuse (message: requestFromInitiator, contents: ["I, " + name + ", already have a house full of crap, you scoundrel!"]);	
+				do reject_proposal (message: requestFromInitiator, contents: ["I, " + name + ", already have a house full of crap, you scoundrel!"]);	
+			}
+		}
+		else if(auctionType = "English")
+		{
+			int currentBid <- int(requestFromInitiator.contents[2]);
+			if(-1 = currentBid)
+			{
+				participatesInAuction <- false;
+			}
+			else
+			{
+				
+				if (maxAcceptedPrice > currentBid) {
+					int newBid <- currentBid + rnd(5, 50);
+					if(newBid > maxAcceptedPrice)
+					{
+						newBid <- maxAcceptedPrice;
+					}
+					do agree with: (message: requestFromInitiator, contents: ["I bid more:, " + currentBid + newBid, newBid]);
+				}
+				else
+				{
+					do agree (message: requestFromInitiator, contents: ["I, " + name + ", can't bid more! I'm out, guyzz", -1]);
+					participatesInAuction <- false;	
+				}
+			}
+		}
+		else if(auctionType = 'Sealed')
+		{
+			int offer <- int(requestFromInitiator.contents[2]);
+			if(-1 = offer)
+			{
+				participatesInAuction <- false;
+			}
+			else
+			{
+				do agree with: (message: requestFromInitiator, contents: ["I bid:, " + maxAcceptedPrice, maxAcceptedPrice]);
 			}
 		}
 	}
@@ -605,6 +655,10 @@ species Auctioner skills:[fipa] parent: Building
 	int minimumValue <- rnd(80, 130);
 	bool hasItemToSell <- true;
 	bool auctionStarted <- false;
+	string auctionType <- "Dutch"; //auctionTypes[rnd(length(auctionTypes) - 1)];
+	int currentBid <- 0;
+	string currentWinner <- nil;
+	bool sendNewProposal <- true;
 	aspect
 	{
 		if(time > 50 and hasItemToSell)
@@ -620,43 +674,124 @@ species Auctioner skills:[fipa] parent: Building
 	
 	reflex send_start_auction when: !auctionStarted and time = 50 and hasItemToSell
 	{
-		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ['Auction starting with price: ' + price, price]);
-	}
-
-	reflex send_request when: auctionStarted and (time > 50 and hasItemToSell) {
-		//list<participant> participants <- list(participant);
-		
-		write "" + time + ": " + name + ' sends the offer of ' + price +' pesos to all guests';
-		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ['Buy my merch, peasant', price]);
-	}
-
-	reflex receive_agree_messages when: auctionStarted and !empty(agrees) and hasItemToSell {
-		write '(Time ' + time + '): ' + name + ' receives agree messages';
-		
-		loop a over: agrees {
-			write name + ' got agree from ' + a.sender + ': ' + a.contents ;
+		write 'Auction starting soon. Type is: ' + auctionType;
+		if(auctionType = "Dutch")
+		{
+			do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ['Start', auctionType]);
+			sendNewProposal <- true;
 		}
-		hasItemToSell <- false;
-		//end of auction
-		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ['Buy my merch, peasant', -1]);
+		else if(auctionType = "English")
+		{
+			do start_conversation (to: list(Guest), protocol: 'fipa-contract-net', performative: 'cfp', contents: ['English auction starting soon, gather around me, looters!', auctionType, currentBid]);
+		}
+		else if(auctionType = "Sealed")
+		{
+			do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ['Start', auctionType]);
+		}
 	}
-	
-	reflex receive_refuse_messages when: auctionStarted and !empty(refuses) and hasItemToSell {
-		write '(Time ' + time + '): ' + name + ' receives failure messages';
-		
-		//loop r over: refuses {
-		//	write '\t' + name + ' receives a failure message from ' + r.sender + ' with content ' + r.contents ;
-		//}
-		
-		price <- price - rnd(5, 15);
-		if(price < minimumValue)
+
+	reflex receive_accept_messages when: auctionStarted and !empty(accept_proposals) and hasItemToSell {
+		if(auctionType = "Dutch")
+		{
+			write '(Time ' + time + '): ' + name + ' receives accept messages';
+			
+			loop a over: accept_proposals {
+				write name + 'got accepted by ' + a.sender + ': ' + a.contents ;
+			}
+			hasItemToSell <- false;
+			//end of auction
+			do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ['Stop']);
+		}
+		else if(auctionType = "English")
+		{
+			write '(Time ' + time + '): ' + name + ' receives higher bids!!';
+			int previousBid <- currentBid;
+			loop a over: agrees {
+				if(a.contents[1] != -1)
+				{
+					write name + ' got a higher bid from ' + a.sender + ': ' + a.contents[1];
+					if(currentBid < int(a.contents[1]))
+					{
+						currentBid <- int(a.contents[1]);
+						currentWinner <- a.sender;
+					}
+				}
+			}
+			if(previousBid = currentBid)
+			{
+				hasItemToSell <- false;
+				write 'Bid ended. Sold to ' + currentWinner + ' for: ' + currentBid;
+				//end of auction
+				do start_conversation (to: list(Guest), protocol: 'fipa-contract-net', performative: 'request', contents: ["Auction is over!", auctionType, -1]);
+			}
+		}
+		else if(auctionType = "Sealed")
 		{
 			hasItemToSell <- false;
-			write 'Price went below minimum value (' + minimumValue + '). No more auction for thrifty guests!';
-			do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ['Auction is over!', -1]);
+			
+			loop a over: agrees {
+				write name + 'get an offer from ' + a.sender + ' of ' + a.contents[1] + ' pesos.';
+				if(currentBid < int(a.contents[1]))
+				{
+					currentBid <- int(a.contents[1]);
+					currentWinner <- a.sender;
+				}
+			}
+			write 'Bid ended. Sold to ' + currentWinner + ' for: ' + currentBid;
+			do start_conversation (to: list(Guest), protocol: 'fipa-contract-net', performative: 'request', contents: ["Auction is over!", auctionType, -1]);
+		}
+	}
+	
+	reflex receive_reject_messages when: auctionStarted and !empty(reject_proposals) and hasItemToSell {
+		if(auctionType = "Dutch")
+		{
+			write '(Time ' + time + '): ' + name + ' receives reject messages';
+			
+			//loop r over: refuses {
+			//	write '\t' + name + ' receives a failure message from ' + r.sender + ' with content ' + r.contents ;
+			//}
+			
+			price <- price - rnd(5, 15);
+			if(price < minimumValue)
+			{
+				hasItemToSell <- false;
+				write 'Price went below minimum value (' + minimumValue + '). No more auction for thrifty guests!';
+				do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ['Stop']);
+			}
+			else
+			{
+				sendNewProposal <- true;
+			}
+		}
+		else if(auctionType = "English")
+		{	
+			/*if(currentBid < minimumValue)
+			{
+				hasItemToSell <- false;
+				write 'Bid ended. No more auctions for poor people!';
+				//end of auction
+				do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ["Auction is over!", auctionType, -1]);
+			}*/
 		}
 	}
 
+	reflex send_request when: auctionStarted and (time > 50 and hasItemToSell) and sendNewProposal {
+		if(auctionType = "Dutch")
+		{
+			write "" + time + ": " + name + ' sends the offer of ' + price +' pesos to all guests';
+			do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'propose', contents: ['Buy my merch, peasant', auctionType, price]);
+			sendNewProposal <- false;
+		}
+		else if(auctionType = "English")
+		{
+			write 'Auctioner ' + name + ': current bid is: ' + currentBid + '. Offer more of miss your chance!';
+			do start_conversation (to: list(Guest), protocol: 'fipa-contract-net', performative: '', contents: ['Buy my merch, peasant', auctionType, currentBid]);
+		}
+		else if(auctionType = "Sealed")
+		{
+			do start_conversation (to: list(Guest), protocol: 'fipa-contract-net', performative: '', contents: ['Buy my merch, peasant', auctionType, 0]);
+		}
+	}
 /*
 	reflex receive_refuse_messages when: !empty(refuses) {
 		write '(Time ' + time + '): ' + name + ' receives refuse messages';
@@ -740,6 +875,19 @@ species Security skills:[moving]
 		{
 			write name + ': exterminated by Robocop!';
 			do die;
+		}
+		ask Hospital
+		{
+			self.unconsciousGuests >- myself.targets[0];
+			self.underTreatment >- myself.targets[0];
+		}
+		ask Ambulance
+		{
+			if(self.targetGuest = myself.targets[0])
+			{
+				self.targetGuest <- nil;
+				self.deliveringGuest <- false;
+			}
 		}
 		targets >- first(targets);
 	}
