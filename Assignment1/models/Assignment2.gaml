@@ -56,7 +56,7 @@ global
 		create Guest number: guestNumber
 		{
 			// Each guest prefers a random item
-			preferredItem <- itemsAvailable[rnd(length(itemsAvailable))];
+			preferredItem <- itemsAvailable[rnd(length(itemsAvailable)-1)];
 		}
 		
 				
@@ -689,6 +689,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 	int mySize <- 5;
 	rgb myColor <- #gray;
 	point targetLocation <- nil;
+	list<Guest> interestedGuests;
 	
 	aspect
 	{
@@ -733,7 +734,8 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 }
 	
 	/*
-	 * TODO: Document
+	 * sets auctionStarted to true when all the guests are within a distance of 13 to the auctioner.
+	 * TODO: Change from all guests to interestedGuests
 	 */
 	reflex guestsAreAround when: hasItemToSell and !auctionStarted and (list(Guest) max_of (location distance_to(each.location))) <= 13
 	{
@@ -741,15 +743,17 @@ species Auctioner skills:[fipa, moving] parent: Building
 	}
 	
 	/*
-	 * TODO: Document
+	 * After guests have gathered, send out the first auction message
+	 * TODO: change to interestedGuests
 	 */
-	reflex send_start_auction when: !auctionStarted and time = 50 and hasItemToSell
+	reflex send_start_auction when: !auctionStarted and time >= rnd(500) and hasItemToSell
 	{
-		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ["Auction of " + soldItem + " starting for " + price, price]);
+		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: [name +": auction of " + soldItem + " starting for " + price]);
 	}
 
 	/*
-	 * TODO: document
+	 * Sends request to all the guests
+	 * TODO: change to interestedGuests
 	 */
 	reflex send_request when: auctionStarted and (time > 50 and hasItemToSell) {
 		//list<participant> participants <- list(participant);
