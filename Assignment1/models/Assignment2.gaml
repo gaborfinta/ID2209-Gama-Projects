@@ -631,6 +631,7 @@ species Auctioner skills:[fipa] parent: Building
 		{
 			hasItemToSell <- false;
 			write 'Price went below minimum value (' + minimumValue + '). No more auction for thrifty guests!';
+			do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ['Auction is over!', -1]);
 		}
 	}
 
