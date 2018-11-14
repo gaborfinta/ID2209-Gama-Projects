@@ -737,18 +737,20 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 * sets auctionStarted to true when all the guests are within a distance of 13 to the auctioner.
 	 * TODO: Change from all guests to interestedGuests
 	 */
-	reflex guestsAreAround when: hasItemToSell and !auctionStarted and (list(Guest) max_of (location distance_to(each.location))) <= 13
+	reflex guestsAreAround when: hasItemToSell and !auctionStarted and (interestedGuests max_of (location distance_to(each.location))) <= 13
 	{
 		auctionStarted <- true;
 	}
 	
 	/*
-	 * After guests have gathered, send out the first auction message
-	 * TODO: change to interestedGuests
+	 * Send out the first auction message to all guest after a random amount of time
+	 * Interested guests will answer and be added to interestedGuests
+	 * The auction will start once the guests have gathered
+	 * TODO: compose interestedGuests?
 	 */
 	reflex send_start_auction when: !auctionStarted and time >= rnd(500) and hasItemToSell
 	{
-		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: [name +": auction of " + soldItem + " starting for " + price]);
+		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: [name + " starting at " + price + "auctioning ", price, soldItem]);
 	}
 
 	/*
@@ -759,7 +761,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 		//list<participant> participants <- list(participant);
 		
 		write "" + time + ": " + name + ' sends the offer of ' + price +' pesos to all guests';
-		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ['Buy my merch, peasant', price]);
+		do start_conversation (to: interestedGuests, protocol: 'fipa-request', performative: 'request', contents: ['Buy my merch, peasant', price]);
 	}
 
 	/*
