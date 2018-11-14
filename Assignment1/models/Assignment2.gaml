@@ -743,6 +743,8 @@ species Auctioner skills:[fipa, moving] parent: Building
 	int mySize <- 5;
 	rgb myColor <- #gray;
 	point targetLocation <- nil;
+	list<Guest> interestedGuests;
+	
 	aspect
 	{
 //		if(time > 50 and hasItemToSell)
@@ -786,15 +788,19 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 }
 	
 	/*
-	 * TODO: Document
+	 * sets auctionStarted to true when all the guests are within a distance of 13 to the auctioner.
+	 * TODO: Change from all guests to interestedGuests
 	 */
-	reflex guestsAreAround when: hasItemToSell and !auctionStarted and (list(Guest) max_of (location distance_to(each.location))) <= 13
+	reflex guestsAreAround when: hasItemToSell and !auctionStarted and (interestedGuests max_of (location distance_to(each.location))) <= 13
 	{
 		auctionStarted <- true;
 	}
 	
 	/*
-	 * TODO: Document
+	 * Send out the first auction message to all guest after a random amount of time
+	 * Interested guests will answer and be added to interestedGuests
+	 * The auction will start once the guests have gathered
+	 * TODO: compose interestedGuests?
 	 */
 	reflex send_start_auction when: !auctionStarted and time = 200 and hasItemToSell
 	{
