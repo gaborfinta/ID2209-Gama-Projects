@@ -695,6 +695,7 @@ species Ambulance skills:[moving]
 	
 	reflex collectFaintedGuest when: targetGuest != nil
 	{
+		deliveringGuest <- true;
 		if(location distance_to(targetGuest.location) < 1)
 		{	
 			// Set's the guest's target to hospital
