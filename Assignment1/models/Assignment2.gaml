@@ -28,9 +28,18 @@ global
 	 */
 	int foodStoreNumber <- rnd(2,3);
 	int drinkStoreNumber <- rnd(2,3);
-	int auctionerNumber <- 1;
+//	int auctionerNumber <- 1;
 	int infoCenterDetectionDistance <- 0;
 	point infoCenterLocation <- {50,50};
+	
+	/*
+	 * Auction configs
+	 */
+	point auctionerMasterLocation <- {-10,-10};
+	list<point> auctionerLocations <-[{25,25},{25,75},{75,75}];
+	list<string> itemsAvailable <-["branded backpacks","signed shirts","heavenly hats"];
+	int auctionCreationMin <- 0;
+	int auctionCreationMax <- 50;
 	
 	/*
 	 * Other agent configs
@@ -46,7 +55,8 @@ global
 		/* Create guestNumber (defined above) amount of Guests */
 		create Guest number: guestNumber
 		{
-			
+			// Each guest prefers a random item
+			preferredItem <- itemsAvailable[rnd(length(itemsAvailable))];
 		}
 		
 				
@@ -95,10 +105,17 @@ global
 		/*
 		 * Number of auctioners is defined above 
 		 */
-		create Auctioner number: 1
+		create AuctionerMaster number: 1
 		{
-
+			location <- auctionerMasterLocation;
 		}
+		/*
+		 * Number of auctioners is defined above 
+		 */
+//		create Auctioner number: 1
+//		{
+
+//		}
 	}
 	
 }
@@ -142,6 +159,10 @@ species Guest skills:[moving, fipa]
 	// Some guests are bad apples and are colored differently
 	// They will be removed by the security
 	bool isBad <- flip(0.2);
+	
+	// each guest prefers a single piece of merchandice
+	string preferredItem;
+	
 	aspect default
 	{
 		if(isBad) {
@@ -555,28 +576,6 @@ species Hospital parent: Building
 				myself.unconsciousGuests >- self;
 				write name + " removed from underTreatment";
 			}
-			/*
-			if(isConscious = false)
-			{
-				if(isBad)
-				{
-					color <- #darkred;	
-				}
-				else
-				{
-					color <- #red;	
-				}
-				hunger <- 100.0;
-				thirst <- 100.0;
-				isConscious <- true;
-				target <- nil;
-				location <- infoCenterLocation;
-				
-				myself.underTreatment >- self;
-				myself.unconsciousGuests >- self;
-				write name + " removed from underTreatment";
-			}
-			*/
 		}
 		
 		/*
@@ -595,34 +594,163 @@ species Hospital parent: Building
 }
 
 /*
+ * The AuctionerMaster creates auctioners
+ * and also starts the auctions
+ * TODO: sell stock to the auctioners?
+ */
+species AuctionerMaster skills:[fipa] parent: Building
+{
+	bool auctionersCreated <- false;
+	rgb myColor <- rnd_color(255);
+	int mySize <- 10;
+	bool auctionersInPosition <- false;
+	list<Auctioner> auctioners <- [];
+	
+	aspect
+	{
+		draw pyramid(mySize) color: myColor;
+	}
+	
+	/*
+	 * For flashing and changing color
+	 */
+	reflex casinoLigths
+	{
+		myColor <- rnd_color(255);
+		if(flip(0.5) and mySize < 15)
+		{
+			mySize <- mySize + 1;
+		}
+		else if(mySize >= 10)
+		{
+			mySize <- mySize - 1;
+		}
+	}
+	
+	/*
+	 * This creates the auctioners within the set time limits from the beginning.
+	 * auctionCreationMin and auctionCreationMax set at the top
+	 */
+	reflex createAuctioners when: !auctionersCreated and time rnd(auctionCreationMin, auctionCreationMax)
+	{
+		string genesisString <- name + " creating auctions: ";
+		
+		loop i from: 0 to: length(itemsAvailable)-1
+		{
+			create Auctioner
+			{
+				location <- myself.location;
+				soldItem <- itemsAvailable[i];
+				genesisString <- genesisString + name + " with " + itemsAvailable[i] + " ";
+				targetLocation <- auctionerLocations[i];
+				myself.auctioners <+ self;
+			}
+		}
+		write genesisString;
+		auctionersCreated <- true;
+	}
+	
+	/*
+	 * Ask if auctioners are done running around
+	 * We shouldn't start auctions while the auctioners are still moving
+	 */
+	reflex areAcutionersInPostion when: !auctionersInPosition and auctionersCreated
+	{
+		bool stillOnTheWay <- false;
+		loop auc over: auctioners
+		{
+			// If any of the auctioners hasn't reached its location yet, return and do nothing.
+			if(auc.targetLocation != nil)
+			{
+				stillOnTheWay <- true;
+			}
+		}
+		if(!stillOnTheWay)
+		{
+			auctionersInPosition <- true;
+			write name + " notified auctioners are in position, starting auctions soon.";	
+		}
+	}
+	
+}
+
+/*
  * 
  * TODO:
  * TODO: maybe auctioners buy their own wares from a central storage - use the other auctions for this?
  */
-species Auctioner skills:[fipa] parent: Building
+species Auctioner skills:[fipa, moving] parent: Building
 {
 	int price <- rnd(200, 300);
 	int minimumValue <- rnd(80, 130);
 	bool hasItemToSell <- true;
 	bool auctionStarted <- false;
+	string soldItem <- "";
+	int mySize <- 5;
+	rgb myColor <- #gray;
+	point targetLocation <- nil;
+	
 	aspect
 	{
-		if(time > 50 and hasItemToSell)
+//		if(time > 50 and hasItemToSell)
+//		{
+			draw pyramid(mySize) color: myColor;
+//		}
+	}
+	
+	/*
+	 * For flashing and changing size
+	 */
+	reflex casinoLigths when: targetLocation = nil
+	{
+		myColor <- rnd_color(255);
+		if(flip(0.5) and mySize < 11)
 		{
-			draw pyramid(10) at: location color: #pink;
+			mySize <- mySize + 1;
+		}
+		else if(mySize >= 8)
+		{
+			mySize <- mySize - 1;
 		}
 	}
 	
+	/*
+	 * For rushing to the field
+	 */
+	 reflex goToLocation when: targetLocation != nil
+	 {
+	 	if(location distance_to targetLocation <= 0.1)
+	 	{
+	 		targetLocation <- nil;
+	 		write name + " has reached targetLocation";
+	 	}
+	 	else
+	 	{
+	 		do goto target: targetLocation speed: roboCopSpeed * 2;	
+	 		myColor <- #gray;
+	 		mySize <- 5;
+	 	}
+	 }
+	
+	/*
+	 * TODO: Document
+	 */
 	reflex guestsAreAround when: hasItemToSell and !auctionStarted and (list(Guest) max_of (location distance_to(each.location))) <= 13
 	{
 		auctionStarted <- true;
 	}
 	
+	/*
+	 * TODO: Document
+	 */
 	reflex send_start_auction when: !auctionStarted and time = 50 and hasItemToSell
 	{
-		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ['Auction starting with price: ' + price, price]);
+		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ["Auction of " + soldItem + " starting for " + price, price]);
 	}
 
+	/*
+	 * TODO: document
+	 */
 	reflex send_request when: auctionStarted and (time > 50 and hasItemToSell) {
 		//list<participant> participants <- list(participant);
 		
@@ -630,6 +758,9 @@ species Auctioner skills:[fipa] parent: Building
 		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ['Buy my merch, peasant', price]);
 	}
 
+	/*
+	 * TODO: document
+	 */
 	reflex receive_agree_messages when: auctionStarted and !empty(agrees) and hasItemToSell {
 		write '(Time ' + time + '): ' + name + ' receives agree messages';
 		
@@ -641,6 +772,9 @@ species Auctioner skills:[fipa] parent: Building
 		do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ['Buy my merch, peasant', -1]);
 	}
 	
+	/*
+	 * TODO: document
+	 */
 	reflex receive_refuse_messages when: auctionStarted and !empty(refuses) and hasItemToSell {
 		write '(Time ' + time + '): ' + name + ' receives failure messages';
 		
@@ -656,16 +790,6 @@ species Auctioner skills:[fipa] parent: Building
 			do start_conversation (to: list(Guest), protocol: 'fipa-request', performative: 'request', contents: ['Auction is over!', -1]);
 		}
 	}
-
-/*
-	reflex receive_refuse_messages when: !empty(refuses) {
-		write '(Time ' + time + '): ' + name + ' receives refuse messages';
-		
-		loop r over: refuses {
-			write '\t' + name + ' receives a refuse message from ' + r.sender + ' with content ' + r.contents ;
-		}
-	}
-*/	
 }// Auctioner
 
 // ################ Buildings end ################
@@ -762,6 +886,7 @@ experiment main type: gui
 			species Security;
 			species Hospital;
 			species Ambulance;
+			species AuctionerMaster;
 			species Auctioner;
 		}
 	}
