@@ -777,14 +777,12 @@ species Auctioner skills:[fipa, moving] parent: Building
 	int minimumValue <- rnd(80, 130);
 	
 	// vars related to start and end of auction
-	bool hasItemToSell <- true;
-	bool auctionStarted <- false;
+	bool auctionRunning <- false;
 	bool startAnnounced <- false;
 	
-	string auctionType <- auctionTypes[rnd(length(auctionTypes) - 1)];
+	string auctionType <- "English";// auctionTypes[rnd(length(auctionTypes) - 1)];
 	int currentBid <- 0;
 	string currentWinner <- nil;
-	bool sendNewProposal <- true;
 
 	// The kind of an item the merchant is selling
 	string soldItem <- "";
@@ -838,7 +836,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 * startAnnounced is here to ensure we don't spam the announcement message
 	 * TODO: set starting time to something more interesting
 	 */
-	reflex send_start_auction when: !auctionStarted and time >= 90 and hasItemToSell and targetLocation = nil and !startAnnounced
+	reflex send_start_auction when: !auctionRunning and time >= 90 and targetLocation = nil and !startAnnounced
 	{
 		write name + " starting " + auctionType + " soon";
 		do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ['Start', soldItem]);
@@ -846,18 +844,18 @@ species Auctioner skills:[fipa, moving] parent: Building
 	}
 	
 	/*
-	 * sets auctionStarted to true when interestedGuests are within a distance of 13 to the auctioner.
+	 * sets auctionRunning to true when interestedGuests are within a distance of 13 to the auctioner.
 	 * TODO: Change from all guests to interestedGuests
 	 */
-	reflex guestsAreAround when: hasItemToSell and !auctionStarted and !empty(interestedGuests) and(interestedGuests max_of (location distance_to(each.location))) <= 13
+	reflex guestsAreAround when: !auctionRunning and !empty(interestedGuests) and(interestedGuests max_of (location distance_to(each.location))) <= 13
 	{
-		auctionStarted <- true;
+		auctionRunning <- true;
 	}
 
 	/*
 	 * Dutch auction: auctioner sends a propose message and guests can reply with accept or reject messages. The auction ends with the first accept.
 	 */
-	reflex receive_accept_messages when: auctionStarted and !empty(accept_proposals) and hasItemToSell {
+	reflex receive_accept_messages when: auctionRunning and !empty(accept_proposals) {
 		if(auctionType = "Dutch")
 		{
 			write name + ' receives accept messages';
@@ -865,9 +863,10 @@ species Auctioner skills:[fipa, moving] parent: Building
 			loop a over: accept_proposals {
 				write name + 'got accepted by ' + a.sender + ': ' + a.contents ;
 			}
-			hasItemToSell <- false;
+			auctionRunning <- false;
 			//end of auction
 			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ['Stop']);
+			interestedGuests <- [];
 		}
 	}
 
@@ -880,7 +879,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 	{
 		if(auctionType = "Sealed")
 		{
-			hasItemToSell <- false;
+			auctionRunning <- false;
 			message winner <- nil;
 			loop p over: proposes {
 				write name + 'get an offer from ' + p.sender + ' of ' + p.contents[1] + ' pesos.';
@@ -894,6 +893,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 			write 'Bid ended. Sold to ' + currentWinner + ' for: ' + currentBid;
 			do accept_proposal with: (message: winner, contents: ['Item is yours']);
 			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ["Stop"]);
+			interestedGuests <- [];
 		}
 		else if(auctionType = "English")
 		{
@@ -914,7 +914,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 * English: Reject messages mean that participants don't wish to bid more and are out of the auction.
 	 * If everyone is out or just one person left, the auction ends.
 	 */
-	reflex receive_reject_messages when: auctionStarted and !empty(reject_proposals) and hasItemToSell {
+	reflex receive_reject_messages when: auctionRunning and !empty(reject_proposals) {
 		if(auctionType = "Dutch")
 		{
 			write name + ' receives reject messages';
@@ -922,13 +922,10 @@ species Auctioner skills:[fipa, moving] parent: Building
 			price <- price - rnd(5, 15);
 			if(price < minimumValue)
 			{
-				hasItemToSell <- false;
+				auctionRunning <- false;
 				write 'Price went below minimum value (' + minimumValue + '). No more auction for thrifty guests!';
 				do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ['Stop']);
-			}
-			else
-			{
-				sendNewProposal <- true;
+				interestedGuests <- [];
 			}
 		}
 		else if(auctionType = "English")
@@ -939,7 +936,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 			}
 			if(length(interestedGuests) < 2)
 			{
-				hasItemToSell <- false;
+				auctionRunning <- false;
 				if(currentBid < minimumValue)
 				{
 					write 'Bid ended. No more auctions for poor people!';
@@ -952,6 +949,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 				{
 					do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ["Stop"]);
 				}
+				interestedGuests <- [];
 			}
 		}
 	}
@@ -960,12 +958,11 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 * English: every iteration, tells guests about the current highest bid that they need to outbid
 	 * Sealed: Start of the auction which is only one iteration
 	 */
-	reflex send_auction_info when: auctionStarted and (time >= 50 and hasItemToSell) and !empty(interestedGuests){
+	reflex send_auction_info when: auctionRunning and time >= 50 and !empty(interestedGuests){
 		if(auctionType = "Dutch")
 		{
 			write name + ' sends the offer of ' + price +' pesos to all guests';
 			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'propose', contents: ['Buy my merch, peasant', auctionType, price]);
-			sendNewProposal <- false;
 		}
 		else if(auctionType = "English")
 		{
