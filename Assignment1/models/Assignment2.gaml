@@ -35,7 +35,7 @@ global
 	/*
 	 * Auction configs
 	 */
-	point auctionerMasterLocation <- {-10,-10};
+	point auctionerMasterLocation <- {-10,50};
 	list<point> auctionerLocations <-[{25,25},{25,75},{75,75}];
 	list<string> itemsAvailable <-["branded backpacks"]; //["branded backpacks","signed shirts","heavenly hats"];
 	// TODO: Temporary variable, use the above later !!!!!!!
@@ -1072,7 +1072,8 @@ species Security skills:[moving]
 	reflex catchBadGuest when: length(targets) > 0
 	{
 		//this is needed in case the guest dies before robocop catches them
-		if(dead(targets[0]))
+		// If a guest is in an auction, wait until they visit the info center again
+		if(targets[0].targetAuction != nil)
 		{
 			targets >- first(targets);
 		}
@@ -1086,9 +1087,12 @@ species Security skills:[moving]
 	{
 		ask targets[0]
 		{
-			write name + ': exterminated by Robocop!';
-			do die;
+			write myself.name + " took away " + name + " bad feeling.";
+			hunger <- -1.0;
+			thirst <- -1.0;
+			isBad <- false;
 		}
+		/*
 		ask Hospital
 		{
 			self.unconsciousGuests >- myself.targets[0];
@@ -1102,6 +1106,7 @@ species Security skills:[moving]
 				self.deliveringGuest <- false;
 			}
 		}
+		*/
 		targets >- first(targets);
 	}
 }//Security end
