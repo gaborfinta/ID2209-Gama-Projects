@@ -405,17 +405,25 @@ species Guest skills:[moving, fipa]
 			// Essentially add the guest to the interestedGuests list
 			targetAuction.interestedGuests <+ self;
 		}
+		//End of auction
 		else if(requestFromInitiator.contents[0] = 'Stop')
 		{
+			write 'Got to know that it is over';
 			targetAuction <- nil;
+			target <- nil;
 		}
+		//Time to send bid for sealed bidding
 		else if(requestFromInitiator.contents[0] = 'Bid For Sealed')
 		{
 			do start_conversation (to: requestFromInitiator.sender, protocol: 'fipa-propose', performative: 'propose', contents: ['This is my offer', maxAcceptedPrice]);
+			targetAuction <- nil;
+			target <- nil;
 		}
+		//next round for english bidding
 		else if(requestFromInitiator.contents[0] = 'Bid for English')
 		{
 			int currentBid <- int(requestFromInitiator.contents[1]);
+			//can bid more
 			if (maxAcceptedPrice > currentBid) 
 			{
 				int newBid <- currentBid + rnd(5, 40);
@@ -426,16 +434,19 @@ species Guest skills:[moving, fipa]
 				write name + ' sending propose ' + newBid;
 				do start_conversation (to: requestFromInitiator.sender, protocol: 'fipa-propose', performative: 'propose', contents: ['This is my offer', newBid]);
 			}
+			//can't bid more
 			else
 			{
 				write name + ": Too much for me, I'm out guyzz";
 				do reject_proposal (message: requestFromInitiator, contents: ["Too much for me, I'm out guyzz"]);
+				targetAuction <- nil;
+				target <- nil;
 			}
 		}
 	}
 	
 	/*
-	 * TODO: Document
+	 * In Dutch auction, the auctioner proposes and the participant can accept or reject it, based on the price it would pay for it.
 	 */
 	reflex reply_messages when: (!empty(proposes))
 	{
@@ -451,37 +462,10 @@ species Guest skills:[moving, fipa]
 			else
 			{
 				do reject_proposal (message: requestFromInitiator, contents: ["I, " + name + ", already have a house full of crap, you scoundrel!"]);	
+				targetAuction <- nil;
+				target <- nil;
 			}
 		}
-		/*else if(auctionType = "English")
-		{
-			int currentBid <- int(requestFromInitiator.contents[2]);
-			if(-1 = currentBid)
-			{
-				targetAuction <- nil;
-			}
-			else
-			{
-				
-				if (maxAcceptedPrice > currentBid) {
-					int newBid <- currentBid + rnd(5, 50);
-					if(newBid > maxAcceptedPrice)
-					{
-						newBid <- maxAcceptedPrice;
-					}
-					do agree with: (message: requestFromInitiator, contents: ["I bid more:, " + currentBid + newBid, newBid]);
-				}
-				else
-				{
-					do agree (message: requestFromInitiator, contents: ["I, " + name + ", can't bid more! I'm out, guyzz", -1]);
-					targetAuction <- nil;	
-				}
-			}
-		}*/
-		/*else if(auctionType = 'Sealed')
-		{
-			do agree with: (message: requestFromInitiator, contents: ["I bid:, " + maxAcceptedPrice, maxAcceptedPrice]);
-		}*/
 	}
 	
 }// Guest end
