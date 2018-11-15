@@ -277,7 +277,7 @@ species Guest skills:[moving, fipa]
 			}
 			
 			destinationMessage <- destinationMessage + " heading to " + target.name;
-			write destinationMessage;
+			//write destinationMessage;
 		}
 	}
 	
@@ -299,7 +299,7 @@ species Guest skills:[moving, fipa]
 			perishMessage <- perishMessage + " of hunger.";
 		}
 		
-		write perishMessage;
+		//write perishMessage;
 		isConscious <- false;
 		color <- #yellow;
 		target <- nil;
@@ -355,7 +355,7 @@ species Guest skills:[moving, fipa]
 				destinationString <- destinationString + "(added to brain) ";
 			}
 			
-			write destinationString + myself.target.name;
+			//write destinationString + myself.target.name;
 		}
 	}
 	
@@ -381,7 +381,7 @@ species Guest skills:[moving, fipa]
 				replenishString <- replenishString + " had a drink at " + name;
 			}
 			
-			write replenishString;
+			//write replenishString;
 		}
 		
 		target <- nil;
@@ -519,11 +519,11 @@ species InfoCenter parent: Building
 	{
 		ask foodStoreLocs
 		{
-			write "Food store at:" + location; 
+			//write "Food store at:" + location; 
 		}	
 		ask drinkStoreLocs
 		{
-			write "Drink store at:" + location; 
+			//write "Drink store at:" + location; 
 		}
 		
 		hasLocations <- true;
@@ -548,7 +548,7 @@ species InfoCenter parent: Building
 						self.targets <+ badGuest;	
 					}
 				}
-				write name + " to Robocop's list";
+				//write name + " to Robocop's list";
 			}
 		}
 	}
@@ -602,7 +602,7 @@ species Hospital parent: Building
 				if(!(myself.unconsciousGuests contains self) and !(myself.underTreatment contains self))
 				{
 					myself.unconsciousGuests <+ self;
-					write name + "added to unconsciousGuests";
+					//write name + "added to unconsciousGuests";
 				}
 			}
 		}
@@ -627,7 +627,7 @@ species Hospital parent: Building
 					if(myself.unconsciousGuests[tg].isConscious = false and !(myself.underTreatment contains myself.unconsciousGuests[tg]))
 					{
 						targetGuest <- myself.unconsciousGuests[tg];
-						write name + " dispatched for " + myself.unconsciousGuests[tg].name; 
+						//write name + " dispatched for " + myself.unconsciousGuests[tg].name; 
 						myself.underTreatment <+ myself.unconsciousGuests[tg];
 						break;
 					}
@@ -660,7 +660,7 @@ species Hospital parent: Building
 				
 				myself.underTreatment >- self;
 				myself.unconsciousGuests >- self;
-				write name + " removed from underTreatment";
+				//write name + " removed from underTreatment";
 			}
 		}
 		
@@ -771,9 +771,9 @@ species Auctioner skills:[fipa, moving] parent: Building
 	rgb myColor <- #gray;
 	point targetLocation <- nil;
 	
-	// TODO: price of what?
+	// price of item to sell
 	int price <- rnd(200, 300);
-	// TODO: minimumValue of what?
+	// minimum price of item to sell. if max bid is lower than this, bid is unsuccessful
 	int minimumValue <- rnd(80, 130);
 	
 	// vars related to start and end of auction
@@ -781,7 +781,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 	bool auctionStarted <- false;
 	bool startAnnounced <- false;
 	
-	string auctionType <- "Dutch"; //auctionTypes[rnd(length(auctionTypes) - 1)];
+	string auctionType <- auctionTypes[rnd(length(auctionTypes) - 1)];
 	int currentBid <- 0;
 	string currentWinner <- nil;
 	bool sendNewProposal <- true;
@@ -793,7 +793,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 
 	aspect
 	{
-			draw pyramid(mySize) color: myColor;
+		draw pyramid(mySize) color: myColor;
 	}
 	
 	/*
@@ -852,11 +852,10 @@ species Auctioner skills:[fipa, moving] parent: Building
 	reflex guestsAreAround when: hasItemToSell and !auctionStarted and !empty(interestedGuests) and(interestedGuests max_of (location distance_to(each.location))) <= 13
 	{
 		auctionStarted <- true;
-		//sendNewProposal <- true;
 	}
 
 	/*
-	 * TODO: Document
+	 * Dutch auction: auctioner sends a propose message and guests can reply with accept or reject messages. The auction ends with the first accept.
 	 */
 	reflex receive_accept_messages when: auctionStarted and !empty(accept_proposals) and hasItemToSell {
 		if(auctionType = "Dutch")
@@ -870,81 +869,13 @@ species Auctioner skills:[fipa, moving] parent: Building
 			//end of auction
 			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ['Stop']);
 		}
-		/*else if(auctionType = "English")
-		{
-			write name + ' receives higher bids!!';
-			int previousBid <- currentBid;
-			loop a over: agrees {
-				if(a.contents[1] != -1)
-				{
-					write name + ' got a higher bid from ' + a.sender + ': ' + a.contents[1];
-					if(currentBid < int(a.contents[1]))
-					{
-						currentBid <- int(a.contents[1]);
-						currentWinner <- a.sender;
-					}
-				}
-			}
-			if(previousBid = currentBid)
-			{
-				hasItemToSell <- false;
-				write 'Bid ended. Sold to ' + currentWinner + ' for: ' + currentBid;
-				//end of auction
-				do start_conversation (to: list(Guest), protocol: 'fipa-contract-net', performative: 'request', contents: ["Auction is over!", auctionType, -1]);
-			}
-		}*/
-		/*else if(auctionType = "Sealed")
-		{
-			
-		}*/
 	}
-	
+
 	/*
-	 * TODO: Document
-	 */
-	reflex receive_reject_messages when: auctionStarted and !empty(reject_proposals) and hasItemToSell {
-		if(auctionType = "Dutch")
-		{
-			write name + ' receives reject messages';
-			
-			//loop r over: refuses {
-			//	write '\t' + name + ' receives a failure message from ' + r.sender + ' with content ' + r.contents ;
-			//}
-			
-			price <- price - rnd(5, 15);
-			if(price < minimumValue)
-			{
-				hasItemToSell <- false;
-				write 'Price went below minimum value (' + minimumValue + '). No more auction for thrifty guests!';
-				do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ['Stop']);
-			}
-			else
-			{
-				sendNewProposal <- true;
-			}
-		}
-		else if(auctionType = "English")
-		{	
-			loop r over: reject_proposals 
-			{
-				interestedGuests >- r.sender;
-			}
-			if(empty(interestedGuests))
-			{
-				hasItemToSell <- false;
-				if(currentBid < minimumValue)
-				{
-					write 'Bid ended. No more auctions for poor people!';
-				}
-				else
-				{
-					write 'Bid ended. Winner is: ' + currentWinner + ' with a bid of ' + currentBid;	
-				}
-				do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ["Stop"]);
-			}
-		}
-	}
-	
+	 * In sealed and english auction, the participants send proposes to the auctioner. The auctioner gets them here.
+	 * In Sealed, the highest bid witn right away.
+	 * In English, this just sets the current highest bid and the auction goes on.
+	 */ 
 	reflex get_proposes when: (!empty(proposes))
 	{
 		if(auctionType = "Sealed")
@@ -976,11 +907,60 @@ species Auctioner skills:[fipa, moving] parent: Building
 			}
 		}
 	}
-
 	/*
-	 * TODO:document 
+	 * Reject messages are used in Dutch and English auctions.
+	 * Dutch: Starting from high bid and goes on as long as everybody rejects the proposal. Here, we decrese the price of the item.
+	 * If the price goes below the minimum expected price, the auction ends.
+	 * English: Reject messages mean that participants don't wish to bid more and are out of the auction.
+	 * If everyone is out or just one person left, the auction ends.
 	 */
-	reflex send_request when: auctionStarted and (time >= 50 and hasItemToSell) and !empty(interestedGuests) /*and sendNewProposal*/ {
+	reflex receive_reject_messages when: auctionStarted and !empty(reject_proposals) and hasItemToSell {
+		if(auctionType = "Dutch")
+		{
+			write name + ' receives reject messages';
+			
+			price <- price - rnd(5, 15);
+			if(price < minimumValue)
+			{
+				hasItemToSell <- false;
+				write 'Price went below minimum value (' + minimumValue + '). No more auction for thrifty guests!';
+				do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ['Stop']);
+			}
+			else
+			{
+				sendNewProposal <- true;
+			}
+		}
+		else if(auctionType = "English")
+		{	
+			loop r over: reject_proposals 
+			{
+				interestedGuests >- r.sender;
+			}
+			if(length(interestedGuests) < 2)
+			{
+				hasItemToSell <- false;
+				if(currentBid < minimumValue)
+				{
+					write 'Bid ended. No more auctions for poor people!';
+				}
+				else
+				{
+					write 'Bid ended. Winner is: ' + currentWinner + ' with a bid of ' + currentBid;	
+				}
+				if(!empty(interestedGuests))
+				{
+					do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ["Stop"]);
+				}
+			}
+		}
+	}
+	/*
+	 * Dutch: every iteration, it sends the decreased price of the item to the participants which they can accept of reject
+	 * English: every iteration, tells guests about the current highest bid that they need to outbid
+	 * Sealed: Start of the auction which is only one iteration
+	 */
+	reflex send_auction_info when: auctionStarted and (time >= 50 and hasItemToSell) and !empty(interestedGuests){
 		if(auctionType = "Dutch")
 		{
 			write name + ' sends the offer of ' + price +' pesos to all guests';
@@ -997,16 +977,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 			write 'Time to offer your money!!';
 			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ['Bid For Sealed']);
 		}
-	}
-/*
-	reflex receive_refuse_messages when: !empty(refuses) {
-		write '(Time ' + time + '): ' + name + ' receives refuse messages';
-		
-		loop r over: refuses {
-			write '\t' + name + ' receives a refuse message from ' + r.sender + ' with content ' + r.contents ;
-		}
-	}
-*/	
+	}	
 }// Auctioner
 
 // ################ Buildings end ################
