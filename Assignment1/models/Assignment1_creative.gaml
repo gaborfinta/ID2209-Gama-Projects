@@ -10,11 +10,11 @@ global
 	/*
 	 * Configs
 	 */
-	int GuestNumber <- rnd(10)+10;
+	int GuestNumber <- rnd(10)+100;
 	//int GuestNumber <- 1;
 	int FoodStoreNumber <- rnd(2,3);
 	int DrinkStoreNumber <- rnd(2,3);
-	int ambulanceNumber <- 2;
+	int ambulanceNumber <- 20;
 	int infoCenterSize <- 5;
 	point infoCenterLocation <- {50,50};
 	float guestSpeed <- 0.5;
@@ -114,7 +114,7 @@ species Guest skills:[moving]
 	/* Bad apples are colored differently */
 	aspect default
 	{
-		if(isBad) {
+		if(isBad and !isConscious) {
 			color <- #darkred;
 		}
 		draw sphere(2) at: location color: color;
@@ -566,6 +566,19 @@ species Security skills:[moving]
 		{
 			write name + ': exterminated by Robocop!';
 			do die;
+		}
+		ask Hospital
+		{
+			self.unconsciousGuests >- myself.targets[0];
+			self.underTreatment >- myself.targets[0];
+		}
+		ask Ambulance
+		{
+			if(self.targetGuest = myself.targets[0])
+			{
+				self.targetGuest <- nil;
+				self.deliveringGuest <- false;
+			}
 		}
 		targets >- first(targets);
 	}
