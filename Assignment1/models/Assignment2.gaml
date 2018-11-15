@@ -35,9 +35,11 @@ global
 	/*
 	 * Auction configs
 	 */
-	point auctionerMasterLocation <- {-10,-10};
+	point auctionerMasterLocation <- {-10,50};
 	list<point> auctionerLocations <-[{25,25},{25,75},{75,75}];
 	list<string> itemsAvailable <-["branded backpacks"]; //["branded backpacks","signed shirts","heavenly hats"];
+	// TODO: Temporary variable, use the above later !!!!!!!
+	list<string> itemsAvailableGUEST <-["branded backpacks","signed shirts","heavenly hats"];
 	int auctionCreationMin <- 0;
 	int auctionCreationMax <- 50;
 	
@@ -58,7 +60,7 @@ global
 		create Guest number: guestNumber
 		{
 			// Each guest prefers a random item
-			preferredItem <- itemsAvailable[rnd(length(itemsAvailable) - 1)];
+			preferredItem <- itemsAvailableGUEST[rnd(length(itemsAvailableGUEST) - 1)];
 		}
 		
 				
@@ -111,13 +113,6 @@ global
 		{
 			location <- auctionerMasterLocation;
 		}
-		/*
-		 * Number of auctioners is defined above 
-		 */
-//		create Auctioner number: 1
-//		{
-
-//		}
 	}
 	
 }
@@ -143,6 +138,7 @@ species Guest skills:[moving, fipa]
 	float hunger <- rnd(50)+50.0;
 	bool isConscious <- true;
 	
+	// Default color of guests
 	rgb color <- #red;
 
 	// This is the price at which the guest will buy merch, set in the configs above
@@ -155,7 +151,9 @@ species Guest skills:[moving, fipa]
 	// Target to move towards
 	Building target <- nil;
 	
-	bool participatesInAuction <- false;
+//	bool participatesInAuction <- false;
+	// Which auction is guest participating in
+	Auctioner targetAuction;
 	
 	/* Bad apples are colored differently */
 	// Some guests are bad apples and are colored differently
@@ -173,11 +171,35 @@ species Guest skills:[moving, fipa]
 		draw sphere(2) at: location color: color;
 	}
 	
+	/*
+	 * When the guest has a targetAuction, it is considered participating in that auction
+	 * Hunger and thirst are disabled for convenience's sake
+	 * Unconscious guests will wake up, capitalism never sleeps
+	 * 
+	 * A target auction is an auction selling the types of items the guest is interested in
+	 * TODO: Document
+	 */
+	reflex inAuction when: targetAuction != nil
+	{
+		hunger <- 100.0;
+		thirst <- 100.0;
+		isConscious <- true;
+		
+		if(location distance_to(targetAuction.location) > 9)
+		{
+			target <- targetAuction;
+		}
+		else
+		{
+			target <- nil;
+		}
+	}
+	
 	/* 
 	 * Reduce thirst and hunger with a random value between 0 and 0.5
 	 * Once agent's thirst or hunger reaches below 50, they will head towards info/Store
 	 */
-	reflex alwaysThirstyAlwaysHungry
+	reflex alwaysThirstyAlwaysHungry when: targetAuction = nil
 	{
 		/* Reduce thirst and hunger */
 		thirst <- thirst - rnd(hungerRate)*0.1;
@@ -258,23 +280,6 @@ species Guest skills:[moving, fipa]
 			write destinationMessage;
 		}
 	}
-	reflex inAuction when: participatesInAuction
-	{
-		hunger <- 100.0;
-		thirst <- 100.0;
-		isConscious <- true;
-		
-		//!!!!!!!!!!!!!!! ONLY WORKS WITH ONE AUCTIONER !!!!!!!!!!!!!!!!!!!!
-		Auctioner auctioner <- one_of(Auctioner);	
-		if(location distance_to(auctioner.location) > 9)
-		{
-			target <- auctioner;
-		}
-		else
-		{
-			target <- nil;
-		}
-	}
 	
 	/*
 	 * if a guest's thirst or hunger <= 0, then the guest faints
@@ -302,7 +307,6 @@ species Guest skills:[moving, fipa]
 
 	/* 
 	 * Agent's default behavior when target not set and they are conscious
-	 * TODO: Do something more exciting here maybe
 	 */
 	reflex beIdle when: target = nil and isConscious
 	{
@@ -383,17 +387,31 @@ species Guest skills:[moving, fipa]
 		target <- nil;
 	}
 	
+	/*
+	 * TODO: Document
+	 */
 	reflex listen_messages when: (!empty(cfps))
 	{
-		
 		message requestFromInitiator <- (cfps at 0);
-		if(requestFromInitiator.contents[0] = 'Start')
+		// the request's format is as follows: [String, auctionType, soldItem, ...]
+		if(requestFromInitiator.contents[0] = 'Start' and requestFromInitiator.contents[1] = preferredItem)
 		{
-			participatesInAuction <- true;
+			// If the guest receives a message from an auction selling its preferredItem,
+			// the guest participates in that auction
+			targetAuction <- requestFromInitiator.sender;
+
+			// Send a message to the auctioner telling them the guest will participate
+			write name + " should send message that they join " + requestFromInitiator.sender + "'s auction for " + preferredItem;
+			// TODO: handle this better
+			// Essentially add the guest to the interestedGuests list
+			ask one_of(Auctioner)
+			{
+				interestedGuests <+ myself;	
+			}
 		}
 		else if(requestFromInitiator.contents[0] = 'Stop')
 		{
-			participatesInAuction <- false;
+			targetAuction <- nil;
 		}
 		else if(requestFromInitiator.contents[0] = 'Bid For Sealed')
 		{
@@ -420,6 +438,9 @@ species Guest skills:[moving, fipa]
 		}
 	}
 	
+	/*
+	 * TODO: Document
+	 */
 	reflex reply_messages when: (!empty(proposes))
 	{
 		message requestFromInitiator <- (proposes at 0);
@@ -441,7 +462,7 @@ species Guest skills:[moving, fipa]
 			int currentBid <- int(requestFromInitiator.contents[2]);
 			if(-1 = currentBid)
 			{
-				participatesInAuction <- false;
+				targetAuction <- nil;
 			}
 			else
 			{
@@ -457,7 +478,7 @@ species Guest skills:[moving, fipa]
 				else
 				{
 					do agree (message: requestFromInitiator, contents: ["I, " + name + ", can't bid more! I'm out, guyzz", -1]);
-					participatesInAuction <- false;	
+					targetAuction <- nil;	
 				}
 			}
 		}*/
@@ -740,32 +761,39 @@ species AuctionerMaster skills:[fipa] parent: Building
 }
 
 /*
- * 
- * TODO:
+ * TODO: document
  * TODO: maybe auctioners buy their own wares from a central storage - use the other auctions for this?
  */
 species Auctioner skills:[fipa, moving] parent: Building
 {
-	int price <- rnd(200, 300);
-	int minimumValue <- rnd(80, 130);
-	bool hasItemToSell <- true;
-	bool auctionStarted <- false;
-	string auctionType <- "English"; //auctionTypes[rnd(length(auctionTypes) - 1)];
-	int currentBid <- 0;
-	string currentWinner <- nil;
-	bool sendNewProposal <- true;
-	string soldItem <- "";
+	// Auction's initial size and color, location used in the beginning
 	int mySize <- 5;
 	rgb myColor <- #gray;
 	point targetLocation <- nil;
-	list<Guest> participants <- list(Guest);
-	//list<Guest> interestedGuests;
+	
+	// TODO: price of what?
+	int price <- rnd(200, 300);
+	// TODO: minimumValue of what?
+	int minimumValue <- rnd(80, 130);
+	
+	// vars related to start and end of auction
+	bool hasItemToSell <- true;
+	bool auctionStarted <- false;
+	bool startAnnounced <- false;
+	
+	string auctionType <- "Dutch"; //auctionTypes[rnd(length(auctionTypes) - 1)];
+	int currentBid <- 0;
+	string currentWinner <- nil;
+	bool sendNewProposal <- true;
+
+	// The kind of an item the merchant is selling
+	string soldItem <- "";
+	// The guests participating in the auction
+	list<Guest> interestedGuests;
+
 	aspect
 	{
-//		if(time > 50 and hasItemToSell)
-//		{
 			draw pyramid(mySize) color: myColor;
-//		}
 	}
 	
 	/*
@@ -803,42 +831,48 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 }
 	
 	/*
-	 * sets auctionStarted to true when all the guests are within a distance of 13 to the auctioner.
+	 * Send out the first auction message to all guest after a random amount of time
+	 * Interested guests will answer and be added to interestedGuests
+	 * The auction will start once the guests have gathered
+	 * 
+	 * startAnnounced is here to ensure we don't spam the announcement message
+	 * TODO: set starting time to something more interesting
+	 */
+	reflex send_start_auction when: !auctionStarted and time >= 80 and hasItemToSell and targetLocation = nil and !startAnnounced
+	{
+		write name + " starting " + auctionType + " soon";
+		do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ['Start', soldItem]);
+		startAnnounced <- true;
+	}
+	
+	/*
+	 * sets auctionStarted to true when interestedGuests are within a distance of 13 to the auctioner.
 	 * TODO: Change from all guests to interestedGuests
 	 */
-	reflex guestsAreAround when: hasItemToSell and !auctionStarted and (list(Guest) max_of (location distance_to(each.location))) <= 13
+	reflex guestsAreAround when: hasItemToSell and !auctionStarted and !empty(interestedGuests) and(interestedGuests max_of (location distance_to(each.location))) <= 13
 	{
 		auctionStarted <- true;
 		//sendNewProposal <- true;
 	}
-	
-	/*
-	 * Send out the first auction message to all guest after a random amount of time
-	 * Interested guests will answer and be added to interestedGuests
-	 * The auction will start once the guests have gathered
-	 * TODO: compose interestedGuests?
-	 */
-	reflex send_start_auction when: !auctionStarted and time = 200 and hasItemToSell
-	{
-		write 'Auction starting soon. Type is: ' + auctionType;
-		do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ['Start']);
-	}
 
+	/*
+	 * TODO: Document
+	 */
 	reflex receive_accept_messages when: auctionStarted and !empty(accept_proposals) and hasItemToSell {
 		if(auctionType = "Dutch")
 		{
-			write '(Time ' + time + '): ' + name + ' receives accept messages';
+			write name + ' receives accept messages';
 			
 			loop a over: accept_proposals {
 				write name + 'got accepted by ' + a.sender + ': ' + a.contents ;
 			}
 			hasItemToSell <- false;
 			//end of auction
-			do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ['Stop']);
+			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ['Stop']);
 		}
 		/*else if(auctionType = "English")
 		{
-			write '(Time ' + time + '): ' + name + ' receives higher bids!!';
+			write name + ' receives higher bids!!';
 			int previousBid <- currentBid;
 			loop a over: agrees {
 				if(a.contents[1] != -1)
@@ -865,10 +899,13 @@ species Auctioner skills:[fipa, moving] parent: Building
 		}*/
 	}
 	
+	/*
+	 * TODO: Document
+	 */
 	reflex receive_reject_messages when: auctionStarted and !empty(reject_proposals) and hasItemToSell {
 		if(auctionType = "Dutch")
 		{
-			write '(Time ' + time + '): ' + name + ' receives reject messages';
+			write name + ' receives reject messages';
 			
 			//loop r over: refuses {
 			//	write '\t' + name + ' receives a failure message from ' + r.sender + ' with content ' + r.contents ;
@@ -879,7 +916,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 			{
 				hasItemToSell <- false;
 				write 'Price went below minimum value (' + minimumValue + '). No more auction for thrifty guests!';
-				do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ['Stop']);
+				do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ['Stop']);
 			}
 			else
 			{
@@ -890,11 +927,9 @@ species Auctioner skills:[fipa, moving] parent: Building
 		{	
 			loop r over: reject_proposals 
 			{
-				write 'removing rejectals' + participants;
-				participants >- r.sender;
-				write 'removing rejectals' + participants;
+				interestedGuests >- r.sender;
 			}
-			if(empty(participants))
+			if(empty(interestedGuests))
 			{
 				hasItemToSell <- false;
 				if(currentBid < minimumValue)
@@ -905,7 +940,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 				{
 					write 'Bid ended. Winner is: ' + currentWinner + ' with a bid of ' + currentBid;	
 				}
-				do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ["Stop"]);
+				do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ["Stop"]);
 			}
 		}
 	}
@@ -927,7 +962,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 			}
 			write 'Bid ended. Sold to ' + currentWinner + ' for: ' + currentBid;
 			do accept_proposal with: (message: winner, contents: ['Item is yours']);
-			do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ["Stop"]);
+			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ["Stop"]);
 		}
 		else if(auctionType = "English")
 		{
@@ -942,22 +977,25 @@ species Auctioner skills:[fipa, moving] parent: Building
 		}
 	}
 
-	reflex send_request when: auctionStarted and (time > 50 and hasItemToSell) /*and sendNewProposal*/ {
+	/*
+	 * TODO:document 
+	 */
+	reflex send_request when: auctionStarted and (time >= 50 and hasItemToSell) and !empty(interestedGuests) /*and sendNewProposal*/ {
 		if(auctionType = "Dutch")
 		{
-			write "" + time + ": " + name + ' sends the offer of ' + price +' pesos to all guests';
-			do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'propose', contents: ['Buy my merch, peasant', auctionType, price]);
+			write name + ' sends the offer of ' + price +' pesos to all guests';
+			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'propose', contents: ['Buy my merch, peasant', auctionType, price]);
 			sendNewProposal <- false;
 		}
 		else if(auctionType = "English")
 		{
 			write 'Auctioner ' + name + ': current bid is: ' + currentBid + '. Offer more or miss your chance!';
-			do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ["Bid for English", currentBid]);
+			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ["Bid for English", currentBid]);
 		}
 		else if(auctionType = "Sealed")
 		{
 			write 'Time to offer your money!!';
-			do start_conversation (to: participants, protocol: 'fipa-propose', performative: 'cfp', contents: ['Bid For Sealed']);
+			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ['Bid For Sealed']);
 		}
 	}
 /*
@@ -974,6 +1012,9 @@ species Auctioner skills:[fipa, moving] parent: Building
 // ################ Buildings end ################
 // ################ Non-building agents start ################
 
+/*
+ * TODO: document  
+ */
 species Ambulance skills:[moving]
 {
 	Guest targetGuest <- nil;
@@ -1026,8 +1067,8 @@ species Security skills:[moving]
 	
 	reflex catchBadGuest when: length(targets) > 0
 	{
-		//this is needed in case the guest dies before robocop catches them
-		if(dead(targets[0]))
+		// If a guest is in an auction, wait until they visit the info center again
+		if(targets[0].targetAuction != nil)
 		{
 			targets >- first(targets);
 		}
@@ -1037,25 +1078,14 @@ species Security skills:[moving]
 		}
 	}
 	
-	reflex badGuestCaught when: length(targets) > 0 and !dead(targets[0]) and location distance_to(targets[0].location) < 0.2
+	reflex badGuestCaught when: length(targets) > 0 and location distance_to(targets[0].location) < 0.2
 	{
 		ask targets[0]
 		{
-			write name + ': exterminated by Robocop!';
-			do die;
-		}
-		ask Hospital
-		{
-			self.unconsciousGuests >- myself.targets[0];
-			self.underTreatment >- myself.targets[0];
-		}
-		ask Ambulance
-		{
-			if(self.targetGuest = myself.targets[0])
-			{
-				self.targetGuest <- nil;
-				self.deliveringGuest <- false;
-			}
+			write myself.name + " took away " + name + " bad feeling.";
+			hunger <- -1.0;
+			thirst <- -1.0;
+			isBad <- false;
 		}
 		targets >- first(targets);
 	}
