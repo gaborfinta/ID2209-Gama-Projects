@@ -838,7 +838,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 * startAnnounced is here to ensure we don't spam the announcement message
 	 * TODO: set starting time to something more interesting
 	 */
-	reflex send_start_auction when: !auctionStarted and time >= 80 and hasItemToSell and targetLocation = nil and !startAnnounced
+	reflex send_start_auction when: !auctionStarted and time >= 90 and hasItemToSell and targetLocation = nil and !startAnnounced
 	{
 		write name + " starting " + auctionType + " soon";
 		do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ['Start', soldItem]);
