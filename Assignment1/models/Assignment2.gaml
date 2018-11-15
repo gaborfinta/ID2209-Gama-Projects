@@ -1071,7 +1071,6 @@ species Security skills:[moving]
 	
 	reflex catchBadGuest when: length(targets) > 0
 	{
-		//this is needed in case the guest dies before robocop catches them
 		// If a guest is in an auction, wait until they visit the info center again
 		if(targets[0].targetAuction != nil)
 		{
@@ -1083,7 +1082,7 @@ species Security skills:[moving]
 		}
 	}
 	
-	reflex badGuestCaught when: length(targets) > 0 and !dead(targets[0]) and location distance_to(targets[0].location) < 0.2
+	reflex badGuestCaught when: length(targets) > 0 and location distance_to(targets[0].location) < 0.2
 	{
 		ask targets[0]
 		{
@@ -1092,21 +1091,6 @@ species Security skills:[moving]
 			thirst <- -1.0;
 			isBad <- false;
 		}
-		/*
-		ask Hospital
-		{
-			self.unconsciousGuests >- myself.targets[0];
-			self.underTreatment >- myself.targets[0];
-		}
-		ask Ambulance
-		{
-			if(self.targetGuest = myself.targets[0])
-			{
-				self.targetGuest <- nil;
-				self.deliveringGuest <- false;
-			}
-		}
-		*/
 		targets >- first(targets);
 	}
 }//Security end
