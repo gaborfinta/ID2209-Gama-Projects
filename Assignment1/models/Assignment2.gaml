@@ -758,7 +758,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 	int mySize <- 5;
 	rgb myColor <- #gray;
 	point targetLocation <- nil;
-	list<string> participants <- list(Guest.name);
+	list<Guest> participants <- list(Guest);
 	aspect
 	{
 //		if(time > 50 and hasItemToSell)
@@ -885,7 +885,9 @@ species Auctioner skills:[fipa, moving] parent: Building
 		{	
 			loop r over: reject_proposals 
 			{
+				write 'removing rejectals' + participants;
 				participants >- r.sender;
+				write 'removing rejectals' + participants;
 			}
 			if(empty(participants))
 			{
