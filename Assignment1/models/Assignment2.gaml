@@ -36,18 +36,23 @@ global
 	 * Auction configs
 	 */
 	point auctionerMasterLocation <- {-10,50};
-	list<point> auctionerLocations <-[{25,25},{25,75},{75,75}];
-	//list<string> itemsAvailable <-["branded backpacks"]; //["branded backpacks","signed shirts","heavenly hats"];
+	//list<point> auctionerLocations <-[{rnd(50),rnd(50)},{rnd(50),50+rnd(50)},{50+rnd(50),50+rnd(50)}];
 	list<string> itemsAvailable <-["branded backpacks","signed shirts","heavenly hats"];
+	// The time when auctioners are created
 	int auctionCreationMin <- 0;
 	int auctionCreationMax <- 50;
+	// The time when the latest auction was finished
+	float lastAuctionEnded <- 0.0;
+	// The interval between auctions after auctioneers have returned and are sent out again
+	float auctionInterval <- 50.0;
 	
 	/*
 	 * Other agent configs
 	 */	
 	// Robotcop is a bit faster than guests, also used by ambulances
 	float roboCopSpeed <- guestSpeed * 1.5;
-	int ambulanceNumber <- 2;
+	// Number of ambulances is one fourth of the number of guests
+	int ambulanceNumber <- round(guestNumber/4);
 	
 	list<string> auctionTypes <- ["Dutch", "English"];
 
@@ -115,7 +120,6 @@ global
 	}
 	
 }
-
 
 /*
  * Max value for both thirst and hunger is 100
@@ -400,7 +404,7 @@ species Guest skills:[moving, fipa]
 			targetAuction <- requestFromInitiator.sender;
 
 			// Send a message to the auctioner telling them the guest will participate
-			write name + " should send message that they join " + requestFromInitiator.sender + "'s auction for " + preferredItem;
+			write name + " joins " + requestFromInitiator.sender + "'s auction for " + preferredItem;
 			// TODO: handle this better
 			// Essentially add the guest to the interestedGuests list
 			targetAuction.interestedGuests <+ self;
@@ -408,7 +412,7 @@ species Guest skills:[moving, fipa]
 		//End of auction
 		else if(requestFromInitiator.contents[0] = 'Stop')
 		{
-			write 'Got to know that it is over';
+			write name + " was told the auction is over.";
 			targetAuction <- nil;
 			target <- nil;
 		}
@@ -662,7 +666,7 @@ species Hospital parent: Building
 /*
  * The AuctionerMaster creates auctioners
  * and also starts the auctions
- * TODO: sell stock to the auctioners?
+ * TODO: restock the auctioners?
  */
 species AuctionerMaster skills:[fipa] parent: Building
 {
@@ -708,7 +712,7 @@ species AuctionerMaster skills:[fipa] parent: Building
 				location <- myself.location;
 				soldItem <- itemsAvailable[i];
 				genesisString <- genesisString + name + " with " + itemsAvailable[i] + " ";
-				targetLocation <- auctionerLocations[i];
+				targetLocation <- {rnd(100),rnd(100)};
 				myself.auctioners <+ self;
 			}
 		}
@@ -718,9 +722,9 @@ species AuctionerMaster skills:[fipa] parent: Building
 	
 	/*
 	 * Ask if auctioners are done running around
-	 * We shouldn't start auctions while the auctioners are still moving
+	 * TODO: document auctioneers returning and being sent out again
 	 */
-	reflex areAcutionersInPostion when: !auctionersInPosition and auctionersCreated
+	reflex areAcutionersInPostion when: auctionersCreated and time >= lastAuctionEnded + auctionInterval
 	{
 		bool stillOnTheWay <- false;
 		loop auc over: auctioners
@@ -735,6 +739,13 @@ species AuctionerMaster skills:[fipa] parent: Building
 		{
 			auctionersInPosition <- true;
 			write name + " notified auctioners are in position, starting auctions soon.";	
+		}
+		// If auctioners are on the way, but are close enough it means they've probably returned
+		else if((auctioners max_of (location distance_to(each.location))) <= 0.5)
+		{
+			ask(Auctioner){
+				
+			}
 		}
 	}
 	
@@ -760,7 +771,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 	bool auctionRunning <- false;
 	bool startAnnounced <- false;
 	
-	string auctionType <- "English";// auctionTypes[rnd(length(auctionTypes) - 1)];
+	string auctionType <- auctionTypes[rnd(length(auctionTypes) - 1)];
 	int currentBid <- 0;
 	string currentWinner <- nil;
 
@@ -829,7 +840,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 */
 	reflex guestsAreAround when: !auctionRunning and !empty(interestedGuests) and (interestedGuests max_of (location distance_to(each.location))) <= 13
 	{
-		write "guestsAreAround";
+		write name + " guestsAreAround";
 		auctionRunning <- true;
 	}
 
@@ -838,7 +849,6 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 */
 	reflex receiveAcceptMessages when: auctionRunning and !empty(accept_proposals)
 	{
-		write "receiveAcceptMessages";
 		if(auctionType = "Dutch")
 		{
 			write name + ' receives accept messages';
@@ -861,7 +871,6 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 */ 
 	reflex getProposes when: (!empty(proposes))
 	{
-		write "getProposes";
 		if(auctionType = "Sealed")
 		{
 			targetLocation <- auctionerMasterLocation;
@@ -903,8 +912,6 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 */
 	reflex receiveRejectMessages when: auctionRunning and !empty(reject_proposals)
 	{
-		write "receiveRejectMessages";
-
 		if(auctionType = "Dutch")
 		{
 			write name + ' receives reject messages';
@@ -953,8 +960,6 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 * Sealed: Start of the auction which is only one iteration
 	 */
 	reflex sendAuctionInfo when: auctionRunning and time >= 50 and !empty(interestedGuests){
-		write "sendAuctionInfo";
-
 		if(auctionType = "Dutch")
 		{
 			write name + ' sends the offer of ' + price +' pesos to all guests';
