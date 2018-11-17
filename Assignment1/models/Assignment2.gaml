@@ -475,7 +475,7 @@ species Guest skills:[moving, fipa]
 			write name + ' won the auction for ' + preferredItem;
 			if(preferredItem = "posh pants")
 			{
-				
+				write "Go Pants !!!";
 			}
 		}
 	}
