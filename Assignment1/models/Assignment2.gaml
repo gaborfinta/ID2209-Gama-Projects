@@ -18,11 +18,6 @@ global
 	// every reflex we reduce hunger / thirst by rnd(0,rate) * 0.1
 	int hungerRate <- 5;
 	
-	// These are for the merchandice and buying.
-	// acceptedPriceMin/Max are for setting the guest's preferred price for the merch 
-	int acceptedPriceMin <- 70;
-	int acceptedPriceMax <- 150;
-	
 	/*
 	 * Building configs
 	 */
@@ -37,8 +32,22 @@ global
 	 */
 	point auctionerMasterLocation <- {-10,50};
 	list<string> itemsAvailable <- ["branded backpacks","signed shirts","heavenly hats", "posh pants"];
+	
+	// Time when auctioneers are created
 	int auctionCreationMin <- 0;
 	int auctionCreationMax <- 50;
+	
+	// Guest accepted price range min and max
+	int guestAcceptedPriceMin <- 100;
+	int guestAcceptedPriceMax <- 1500;
+	
+	// English auction bid raise min and max
+	int engAuctionRaiseMin <- 5;
+	int engAuctionRaiseMax <- 50;
+	
+	// Dutch auction bid decrease min and max 
+	int dutchAuctionDecreaseMin <- 5;
+	int dutchAuctionDecreaseMax <- 50;	
 	
 	/*
 	 * Other agent configs
@@ -142,16 +151,13 @@ species Guest skills:[moving, fipa]
 	rgb color <- #red;
 	
 	// This is the price at which the guest will buy merch, set in the configs above
-	int maxAcceptedPrice <- rnd(acceptedPriceMin,acceptedPriceMax);
-	// The guests will only buy merch once
-	bool merchBought <- false;
+	int guestMaxAcceptedPrice <- rnd(guestAcceptedPriceMin,guestAcceptedPriceMax);
 	
 	// List of remembered buildings
 	list<Building> guestBrain;
 	// Target to move towards
 	Building target <- nil;
-	
-//	bool participatesInAuction <- false;
+
 	// Which auction is guest participating in
 	Auctioner targetAuction;
 	
@@ -174,24 +180,24 @@ species Guest skills:[moving, fipa]
 		{
 			if(preferredItem = "branded backpacks")
 			{
-				point backPackLocation <- location + point([2.1, 0.0, 2.0]);
+				//point backPackLocation <- location + point([2.1, 0.0, 2.0]);
 				//backPackLocation <- backPackLocation.x + 1; 
-				draw cube(1.2) at: backPackLocation color: #purple;
+				draw cube(1.2) at: location + point([2.1, 0.0, 2.0]) color: #purple;
 			}
 			else if(preferredItem = "heavenly hats")
 			{
-				point hatLocation <- location + point([0.0, 0.0, 3.5]);
-				draw pyramid(1.2) at: hatLocation color: #orange;
+				//point hatLocation <- location + point([0.0, 0.0, 3.5]);
+				draw pyramid(1.2) at: location + point([0.0, 0.0, 3.5]) color: #orange;
 			}
 			else if(preferredItem = "signed shirts")
 			{
-				point shirtLocation <- location + point([0.0, 0.0, 1.0]);
-				draw cylinder(2.01, 1.5) at: shirtLocation color: #lime;
+				//point shirtLocation <- location + point([0.0, 0.0, 1.0]);
+				draw cylinder(2.01, 1.5) at: location + point([0.0, 0.0, 1.0]) color: #lime;
 			}
 			else if(preferredItem = "posh pants")
 			{
-				point shirtLocation <- location + point([0.0, 0.0, 0.0]);
-				draw cylinder(2.01, 1.5) at: shirtLocation color: #pink;
+				//point shirtLocation <- location + point([0.0, 0.0, 0.0]);
+				draw cylinder(2.01, 1.5) at: location color: #pink;
 			}
 		}
 	}
@@ -441,7 +447,7 @@ species Guest skills:[moving, fipa]
 		//Time to send bid for sealed bidding
 		else if(requestFromInitiator.contents[0] = 'Bid For Sealed')
 		{
-			do start_conversation (to: requestFromInitiator.sender, protocol: 'fipa-propose', performative: 'propose', contents: ['This is my offer', maxAcceptedPrice]);
+			do start_conversation (to: requestFromInitiator.sender, protocol: 'fipa-propose', performative: 'propose', contents: ['This is my offer', guestMaxAcceptedPrice]);
 			targetAuction <- nil;
 			target <- nil;
 		}
@@ -450,12 +456,12 @@ species Guest skills:[moving, fipa]
 		{
 			int currentBid <- int(requestFromInitiator.contents[1]);
 			//can bid more
-			if (maxAcceptedPrice > currentBid) 
+			if (guestMaxAcceptedPrice > currentBid) 
 			{
-				int newBid <- currentBid + rnd(5, 40);
-				if(newBid > maxAcceptedPrice)
+				int newBid <- currentBid + rnd(engAuctionRaiseMin, engAuctionRaiseMax);
+				if(newBid > guestMaxAcceptedPrice)
 				{
-					newBid <- maxAcceptedPrice;
+					newBid <- guestMaxAcceptedPrice;
 				}
 				write name + ' sending propose ' + newBid;
 				do start_conversation (to: requestFromInitiator.sender, protocol: 'fipa-propose', performative: 'propose', contents: ['This is my offer', newBid]);
@@ -491,7 +497,7 @@ species Guest skills:[moving, fipa]
 		if(auctionType = "Dutch")
 		{
 			int offer <- int(requestFromInitiator.contents[2]);
-			if (maxAcceptedPrice >= offer) {
+			if (guestMaxAcceptedPrice >= offer) {
 				do accept_proposal with: (message: requestFromInitiator, contents: ["I, " + name + ", accept your offer of " + offer + ", merchant."]);
 			}
 			else
@@ -855,7 +861,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 
 	/*
 	 * In sealed and english auction, the participants send proposes to the auctioner. The auctioner gets them here.
-	 * In Sealed, the highest bid witn right away.
+	 * In Sealed, the highest bid wins right away.
 	 * In English, this just sets the current highest bid and the auction goes on.
 	 */ 
 	reflex getProposes when: (!empty(proposes))
@@ -906,7 +912,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 		{
 			write name + ' receives reject messages';
 			
-			price <- price - rnd(5, 15);
+			price <- price - rnd(dutchAuctionDecreaseMin, dutchAuctionDecreaseMax);
 			if(price < minimumValue)
 			{
 				targetLocation <- auctionerMasterLocation;
