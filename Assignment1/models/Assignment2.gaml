@@ -38,7 +38,7 @@ global
 	point auctionerMasterLocation <- {-10,50};
 	list<point> auctionerLocations <-[{25,25},{25,75},{75,75}];
 	//list<string> itemsAvailable <-["branded backpacks"]; //["branded backpacks","signed shirts","heavenly hats"];
-	list<string> itemsAvailable <-["branded backpacks","signed shirts","heavenly hats"];
+	list<string> itemsAvailable <- ["branded backpacks","signed shirts","heavenly hats"];
 	int auctionCreationMin <- 0;
 	int auctionCreationMax <- 50;
 	
@@ -137,9 +137,11 @@ species Guest skills:[moving, fipa]
 	float hunger <- rnd(50)+50.0;
 	bool isConscious <- true;
 	
+	bool wonAuction <- false;
+	
 	// Default color of guests
 	rgb color <- #red;
-
+	
 	// This is the price at which the guest will buy merch, set in the configs above
 	int maxAcceptedPrice <- rnd(acceptedPriceMin,acceptedPriceMax);
 	// The guests will only buy merch once
@@ -168,6 +170,26 @@ species Guest skills:[moving, fipa]
 			color <- #darkred;
 		}
 		draw sphere(2) at: location color: color;
+		//["branded backpacks","signed shirts","heavenly hats"]
+		if (wonAuction = true)
+		{
+			if(preferredItem = "branded backpacks")
+			{
+				point backPackLocation <- location + point([2.1, 0.0, 0.0]);
+				//backPackLocation <- backPackLocation.x + 1; 
+				draw cube(1.2) at: backPackLocation color: #purple;
+			}
+			else if(preferredItem = "heavenly hats")
+			{
+				point hatLocation <- location + point([0.0, 0.0, 2]);
+				draw pyramid(1.2) at: hatLocation color: #brown;
+			}
+			else if(preferredItem = "signed shirts")
+			{
+				point shirtLocation <- location + point([0.0, 0.0, -1]);
+				draw cylinder(2.01, 2.01) at: shirtLocation color: #blue;
+			}
+		}
 	}
 	
 	/*
@@ -442,6 +464,11 @@ species Guest skills:[moving, fipa]
 				targetAuction <- nil;
 				target <- nil;
 			}
+		}
+		else if(requestFromInitiator.contents[0] = 'Winner')
+		{
+			wonAuction <- true;
+			write 'I won a ' + preferredItem;
 		}
 	}
 	
@@ -763,6 +790,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 	string auctionType <- "English";// auctionTypes[rnd(length(auctionTypes) - 1)];
 	int currentBid <- 0;
 	string currentWinner <- nil;
+	message winner <- nil;
 
 	// The kind of an item the merchant is selling
 	string soldItem <- "";
@@ -844,7 +872,8 @@ species Auctioner skills:[fipa, moving] parent: Building
 			write name + ' receives accept messages';
 			
 			loop a over: accept_proposals {
-				write name + 'got accepted by ' + a.sender + ': ' + a.contents ;
+				write name + 'got accepted by ' + a.sender + ': ' + a.contents;
+				do start_conversation (to: a.sender, protocol: 'fipa-propose', performative: 'cfp', contents: ['Winner']);
 			}
 			targetLocation <- auctionerMasterLocation;
 			auctionRunning <- false;
@@ -867,7 +896,6 @@ species Auctioner skills:[fipa, moving] parent: Building
 			targetLocation <- auctionerMasterLocation;
 			auctionRunning <- false;
 
-			message winner <- nil;
 			loop p over: proposes {
 				write name + 'get an offer from ' + p.sender + ' of ' + p.contents[1] + ' pesos.';
 				if(currentBid < int(p.contents[1]))
@@ -877,6 +905,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 					winner <- p;
 				}
 			}
+			do start_conversation (to: winner.sender, protocol: 'fipa-propose', performative: 'cfp', contents: ['Winner']);
 			write 'Bid ended. Sold to ' + currentWinner + ' for: ' + currentBid;
 			do accept_proposal with: (message: winner, contents: ['Item is yours']);
 			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ["Stop"]);
@@ -890,6 +919,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 				{
 					currentBid <- int(p.contents[1]);
 					currentWinner <- p.sender;
+					winner <- p;
 				}
 			}
 		}
@@ -938,6 +968,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 				else
 				{
 					write 'Bid ended. Winner is: ' + currentWinner + ' with a bid of ' + currentBid;	
+					do start_conversation (to: winner.sender, protocol: 'fipa-propose', performative: 'cfp', contents: ['Winner']);
 				}
 				if(!empty(interestedGuests))
 				{
