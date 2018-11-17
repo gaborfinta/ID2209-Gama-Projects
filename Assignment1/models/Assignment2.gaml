@@ -426,7 +426,7 @@ species Guest skills:[moving, fipa]
 			targetAuction <- requestFromInitiator.sender;
 
 			// Send a message to the auctioner telling them the guest will participate
-			write name + " should send message that they join " + requestFromInitiator.sender + "'s auction for " + preferredItem;
+			write name + " joins " + requestFromInitiator.sender + "'s auction for " + preferredItem;
 			// TODO: handle this better
 			// Essentially add the guest to the interestedGuests list
 			targetAuction.interestedGuests <+ self;
@@ -866,7 +866,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 			auctionRunning <- false;
 
 			loop p over: proposes {
-				write name + 'get an offer from ' + p.sender + ' of ' + p.contents[1] + ' pesos.';
+				write name + ' got an offer from ' + p.sender + ' of ' + p.contents[1] + ' pesos.';
 				if(currentBid < int(p.contents[1]))
 				{
 					currentBid <- int(p.contents[1]);
@@ -875,7 +875,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 				}
 			}
 			do start_conversation (to: winner.sender, protocol: 'fipa-propose', performative: 'cfp', contents: ['Winner']);
-			write 'Bid ended. Sold to ' + currentWinner + ' for: ' + currentBid;
+			write name + ' bid ended. Sold to ' + currentWinner + ' for: ' + currentBid;
 			do accept_proposal with: (message: winner, contents: ['Item is yours']);
 			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ["Stop"]);
 			interestedGuests <- [];
@@ -883,7 +883,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 		else if(auctionType = "English")
 		{
 			loop p over: proposes {
-				write name + 'get an offer from ' + p.sender + ' of ' + p.contents[1] + ' pesos.';
+				write name + ' got an offer from ' + p.sender + ' of ' + p.contents[1] + ' pesos.';
 				if(currentBid < int(p.contents[1]))
 				{
 					currentBid <- int(p.contents[1]);
@@ -912,7 +912,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 				targetLocation <- auctionerMasterLocation;
 				auctionRunning <- false;
 
-				write 'Price went below minimum value (' + minimumValue + '). No more auction for thrifty guests!';
+				write name + ' price went below minimum value (' + minimumValue + '). No more auction for thrifty guests!';
 				do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ['Stop']);
 				interestedGuests <- [];
 			}
@@ -930,7 +930,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 
 				if(currentBid < minimumValue)
 				{
-					write 'Bid ended. No more auctions for poor people!';
+					write name + ' bid ended. No more auctions for poor people!';
 				}
 				else
 				{
@@ -963,7 +963,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 		}
 		else if(auctionType = "Sealed")
 		{
-			write 'Time to offer your money!!';
+			write name + ' time to offer your money!!';
 			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ['Bid For Sealed']);
 		}
 	}	
