@@ -30,7 +30,7 @@ global
 	 * Auction configs
 	 */
 	point auctionerMasterLocation <- {-10,50};
-	list<string> itemsAvailable <- ["branded backpacks"];
+	list<string> itemsAvailable <- ["heavenly hats"];
 	
 	// Time when auctioneers are created
 	int auctionCreationMin <- 0;
