@@ -30,7 +30,7 @@ global
 	 * Auction configs
 	 */
 	point auctionerMasterLocation <- {-10,50};
-	list<string> itemsAvailable <- ["branded backpacks"];
+	list<string> itemsAvailable <- ["branded backpacks","signed shirts","heavenly hats", "posh pants"];
 	
 	// Time when auctioneers are created
 	int auctionCreationMin <- 0;
@@ -67,7 +67,7 @@ global
 	// The number of ambulances is propotionate to the amount of guests
 	int ambulanceNumber <- round(guestNumber / 4);
 	
-	list<string> auctionTypes <- ["Dutch"];
+	list<string> auctionTypes <- ["Dutch", "English", "Sealed"];
 
 	
 	
