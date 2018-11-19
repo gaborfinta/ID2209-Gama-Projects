@@ -31,16 +31,56 @@ species YasQueen skills: [moving, fipa]
 {
 	rgb myColor <- #blue;
 	point targetLocation <- nil;
+	bool inPosition <- false;
 	
 	// The queen can only talk to their predecessor and succesor in the list of queens
+	bool neighborsFound <- false;
 	YasQueen preceedingQueen <- nil;
 	YasQueen succeedingQueen <- nil;
 	
-//	reflex findNeighbors
+	// These are for seeing how the queens align while they're finding their spot
+	bool drawThreatenLines <- true;
 	
+	/*
+	 * Identify the queen's neighbors only if they haven't been found yet
+	 */
+	reflex findNeighbors when: neighborsFound != true
+	{
+		int ownIndex <- index_of(YasQueen, self);
+		// If this is the first agent, then set the last agent as preceeding
+		if(ownIndex != 0)
+		{
+			preceedingQueen <- YasQueen[ownIndex-1];
+		}
+		else
+		{
+			preceedingQueen <- YasQueen[length(YasQueen)-1];
+		}
+		// If this is the last agent, then set the first agent as succeeding
+		if(ownIndex != length(YasQueen)-1)
+		{
+			succeedingQueen <- YasQueen[ownIndex+1];
+		}
+		else
+		{
+			succeedingQueen <- YasQueen[0];
+		}
+		
+		write name + " previous: " + preceedingQueen + " and succeeding: " + succeedingQueen;
+		neighborsFound <- true;
+	}
+
 	aspect default
 	{
-		draw square(10) color: myColor;
+		draw square(10) color: myColor size: 100/N;
+		if(drawThreatenLines != false)
+		{
+			// these are just for visualizing if the queens threaten each other
+			draw line([{0,0},{100,100}]) at: location + {0,0,-0.05} color: myColor;
+			draw line([{100,0},{0,100}]) at: location + {0,0,-0.05} color: myColor;
+			draw line([{0,0},{100,0}]) at: location + {0,0,-0.05} color: myColor;
+			draw line([{0,0},{0,100}]) at: location + {0,0,-0.05} color: myColor;
+		}
 	}
 	
 	// while the queen has a target, move towards target
@@ -48,6 +88,8 @@ species YasQueen skills: [moving, fipa]
 	{
 		do goto target: targetLocation speed: 3.0;
 	}
+	
+	
 }
 
 experiment main type: gui
