@@ -127,12 +127,12 @@ species YasQueen skills: [moving, fipa]
 			//fill column with zeroes
 			availableCells[column, i] <- 0;
 			//fill left to right diagonal with zeroes
-			if(column + i < N - 1 and row + i < N - 1)
+			if(column + i < N and row + i < N)
 			{
 				availableCells[column + i, row + i] <- 0;
 			}
 			//fill right to left diagonal with zeroes
-			if(column - i >= 0 and row + i < N - 1)
+			if(column - i >= 0 and row + i < N)
 			{
 				availableCells[column - i, row + i] <- 0;
 			}
