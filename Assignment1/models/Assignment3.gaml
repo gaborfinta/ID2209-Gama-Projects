@@ -37,7 +37,6 @@ species YasQueen skills: [moving, fipa]
 	bool inPosition <- false;
 	
 	// The queen can only talk to their predecessor and succesor in the list of queens
-	bool neighborsFound <- false;
 	YasQueen preceedingQueen <- nil;
 	YasQueen succeedingQueen <- nil;
 	int ownIndex <- index_of(YasQueen, self);
@@ -49,13 +48,20 @@ species YasQueen skills: [moving, fipa]
 	
 	init constructor
 	{
+		do findNeighbors;
+		if(ownIndex = 0)
+		{
+			column <- 0;
+			placedQueenPositions <+ column :: row;
+			do updateBoardInfo;
+		}
 		do updateLocation;
 	}
 	
 	/*
 	 * Identify the queen's neighbors only if they haven't been found yet
 	 */
-	reflex findNeighbors when: neighborsFound != true
+	action findNeighbors
 	{
 		// If this is the first agent, then set the last agent as preceeding
 		if(ownIndex != 0)
@@ -69,22 +75,21 @@ species YasQueen skills: [moving, fipa]
 		// If this is the last agent, then set the first agent as succeeding
 		if(ownIndex != length(YasQueen)-1)
 		{
-			//succeedingQueen <- YasQueen[ownIndex+1];
+			succeedingQueen <- YasQueen[ownIndex+1];
 		}
 		else
 		{
-			succeedingQueen <- YasQueen[0];
+			//succeedingQueen <- YasQueen[0];
 		}
 		
 		write name + " previous: " + preceedingQueen + " and succeeding: " + succeedingQueen;
-		neighborsFound <- true;
 	}
 	
 	
 	/*
 	 * This is supposed to trigger when the previous queen is set and the new one needs to be placed
 	 */
-	reflex placeMySelf when: length(placedQueenPositions) = ownIndex
+	/*reflex start when: length(placedQueenPositions) = ownIndex
 	{
 		if(ownIndex = 0)
 		{
@@ -97,6 +102,30 @@ species YasQueen skills: [moving, fipa]
 		}
 		placedQueenPositions <+ column :: row;
 		do updateBoardInfo;
+	}*/
+	
+	
+	/*
+	 * Predecessor queen will place the next one if predecessor is the last one placed 
+	  */
+	reflex placeNextQueen when: ownIndex < N - 1 and length(placedQueenPositions) = ownIndex + 1
+	{
+		write 'ownindex: ' + ownIndex;
+		write 'placeNextQueen';
+		int toStep <- first_with(range(N - 1), availableCells[each, succeedingQueen.row] = 1);
+		do start_conversation (to: [succeedingQueen], protocol: 'fipa-request', performative: 'request', contents: ['step', toStep]);
+	}
+	
+	reflex listenToRequests when: (!empty(requests))
+	{
+		message request <- requests[0];
+		write request.contents;
+		if(request.contents[0] = 'step')
+		{
+			column <- request.contents[1];
+			placedQueenPositions <+ column :: row;
+			do updateBoardInfo;
+		}
 	}
 	
 	reflex updateLocaton
@@ -120,6 +149,10 @@ species YasQueen skills: [moving, fipa]
 	 */
 	action updateBoardInfo
 	{
+		if(column = -1)
+		{
+			return;
+		}
 		loop i from: 0 to: N - 1
 		{
 			//fill row with zeroes
