@@ -14,7 +14,10 @@ global
 	// Same number also defines how many squares there should be for the floor
 	int N <- 8;
 	float tileSize <- 100 / (N);
-
+	
+	matrix availableCells <- 1 as_matrix({N, N});
+	list<pair<int, int>> placedQueenPositions;
+	
 	init
 	{
 		create YasQueen number: N
@@ -37,16 +40,23 @@ species YasQueen skills: [moving, fipa]
 	bool neighborsFound <- false;
 	YasQueen preceedingQueen <- nil;
 	YasQueen succeedingQueen <- nil;
+	int ownIndex <- index_of(YasQueen, self);
+	int column <- -1;
+	int row <- ownIndex;
 	
 	// These are for seeing how the queens align while they're finding their spot
-	bool drawThreatenLines <- true;
+	bool drawThreatenLines <- false;
+	
+	init constructor
+	{
+		do updateLocation;
+	}
 	
 	/*
 	 * Identify the queen's neighbors only if they haven't been found yet
 	 */
 	reflex findNeighbors when: neighborsFound != true
 	{
-		int ownIndex <- index_of(YasQueen, self);
 		// If this is the first agent, then set the last agent as preceeding
 		if(ownIndex != 0)
 		{
@@ -54,12 +64,12 @@ species YasQueen skills: [moving, fipa]
 		}
 		else
 		{
-			preceedingQueen <- YasQueen[length(YasQueen)-1];
+			//preceedingQueen <- YasQueen[length(YasQueen)-1];
 		}
 		// If this is the last agent, then set the first agent as succeeding
 		if(ownIndex != length(YasQueen)-1)
 		{
-			succeedingQueen <- YasQueen[ownIndex+1];
+			//succeedingQueen <- YasQueen[ownIndex+1];
 		}
 		else
 		{
@@ -69,10 +79,80 @@ species YasQueen skills: [moving, fipa]
 		write name + " previous: " + preceedingQueen + " and succeeding: " + succeedingQueen;
 		neighborsFound <- true;
 	}
+	
+	
+	/*
+	 * This is supposed to trigger when the previous queen is set and the new one needs to be placed
+	 */
+	reflex placeMySelf when: length(placedQueenPositions) = ownIndex
+	{
+		if(ownIndex = 0)
+		{
+			column <- 0;
+		}
+		else
+		{
+			column <- first_with(range(N - 1), availableCells[each, row] = 1);
+			
+		}
+		placedQueenPositions <+ column :: row;
+		do updateBoardInfo;
+	}
+	
+	reflex updateLocaton
+	{
+		do updateLocation;
+	}
+	
+	/*
+	 * Updates loction according to new X and Y coordinates
+	 */
+	action updateLocation
+	{
+		location <- {column * tileSize + tileSize / 2, row * tileSize + tileSize / 2};
+	}
+	
+	
+	/*
+	 * Update the avilableCells matrix with the newly placed queen.
+	 * This puts zeroes to the unavailable places.
+	 * 
+	 */
+	action updateBoardInfo
+	{
+		loop i from: 0 to: N - 1
+		{
+			//fill row with zeroes
+			availableCells[i, row] <- 0;
+			//fill column with zeroes
+			availableCells[column, i] <- 0;
+			//fill left to right diagonal with zeroes
+			if(column + i < N - 1 and row + i < N - 1)
+			{
+				availableCells[column + i, row + i] <- 0;
+			}
+			//fill right to left diagonal with zeroes
+			if(column - i >= 0 and row + i < N - 1)
+			{
+				availableCells[column - i, row + i] <- 0;
+			}
+			
+		}
+		
+		loop queenPos over: placedQueenPositions
+		{
+			availableCells[queenPos.key, queenPos.value] <- 9;
+		}
+		
+		write "QUEEN: " + row;
+		write "placedQueenPositions "  + placedQueenPositions;
+		write "availableCells: \n" + availableCells;
+	}
+	
 
 	aspect default
 	{
-		draw square(10) color: myColor size: 100/N;
+		draw circle(100 / (N * 3.5)) color: myColor at: location;
 		if(drawThreatenLines != false)
 		{
 			// these are just for visualizing if the queens threaten each other
@@ -84,12 +164,10 @@ species YasQueen skills: [moving, fipa]
 	}
 	
 	// while the queen has a target, move towards target
-	reflex goToLocation when: targetLocation != nil
+	/*reflex goToLocation when: targetLocation != nil
 	{
 		do goto target: targetLocation speed: 3.0;
-	}
-	
-	
+	}*/	
 }
 
 experiment main type: gui
