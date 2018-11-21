@@ -32,7 +32,8 @@ global
 	point showMasterLocation <- {-10,50};
 	list<string> itemsAvailable <- ["branded backpacks","signed shirts","heavenly hats", "posh pants"];
 	list<string> auctionTypes <- ["Dutch", "English", "Sealed"];
-	bool startAuctions <- false;
+	// This is managed by the ShowMaster
+	bool runAuctions <- false;
 	
 	// Time when auctioneers are created
 	int auctionCreationMin <- 150;
@@ -68,11 +69,12 @@ global
 	int stageParameterMin <- 0;
 	int stageParameterMax <- 100;
 	// How often stages have shows
-	int startIntervalMin <- 30;
-	int startIntervalMax <- 100;
+//	int startIntervalMin <- 30;
+//	int startIntervalMax <- 100;
 	int durationMin <- 50;
 	int durationMax <- 200;
 	list<string> genresAvailable <- [""];
+	bool runShows <- false;
 	
 	/*
 	 * Other agent configs
@@ -142,12 +144,6 @@ global
 		{
 			location <- showMasterLocation;
 		}
-		
-		/* Number of auctioners is defined above */
-		create Stage number: stageNumber
-		{
-			stageGenre <- genresAvailable[rnd(length(genresAvailable) - 1)];
-		}
 	}
 	
 }
@@ -178,8 +174,6 @@ species Guest skills:[moving, fipa]
 	float hunger <- rnd(50)+50.0;
 	bool isConscious <- true;
 	
-	bool wonAuction <- false;
-	
 	// Default color of guests
 	rgb color <- #red;
 	
@@ -202,6 +196,9 @@ species Guest skills:[moving, fipa]
 	// each guest prefers a single piece of merchandice
 	string preferredItem;
 	
+	// A list of all the items the guest does not have
+	list<string> wishList <- ["branded backpacks","signed shirts","heavenly hats", "posh pants"];
+	
 	// Each guest as a set of weights for stages
 	// These are used to calculate utility when deciding which stage to go to
 	float preferenceStageLights <- rnd(stageParameterMin,stageParameterMax) * 0.01;
@@ -218,30 +215,37 @@ species Guest skills:[moving, fipa]
 		}
 		draw sphere(2) at: location color: color;
 
-		if (wonAuction = true)
+		if(!contains(wishList, "branded backpacks"))
 		{
-			if(preferredItem = "branded backpacks")
-			{
-				//point backPackLocation <- location + point([2.1, 0.0, 2.0]);
-				//backPackLocation <- backPackLocation.x + 1; 
-				draw cube(1.2) at: location + point([2.1, 0.0, 2.0]) color: #purple;
-			}
-			else if(preferredItem = "heavenly hats")
-			{
-				//point hatLocation <- location + point([0.0, 0.0, 3.5]);
-				draw pyramid(1.2) at: location + point([0.0, 0.0, 3.5]) color: #orange;
-			}
-			else if(preferredItem = "signed shirts")
-			{
-				//point shirtLocation <- location + point([0.0, 0.0, 1.0]);
-				draw cylinder(2.01, 1.5) at: location + point([0.0, 0.0, 1.0]) color: #lime;
-			}
-			else if(preferredItem = "posh pants")
-			{
-				//point shirtLocation <- location + point([0.0, 0.0, 0.0]);
-				draw cylinder(2.01, 1.5) at: location color: #pink;
-			}
+			//point backPackLocation <- location + point([2.1, 0.0, 2.0]);
+			//backPackLocation <- backPackLocation.x + 1; 
+			draw cube(1.2) at: location + point([2.1, 0.0, 2.0]) color: #purple;
 		}
+		if(!contains(wishList, "heavenly hats"))
+		{
+			//point hatLocation <- location + point([0.0, 0.0, 3.5]);
+			draw pyramid(1.2) at: location + point([0.0, 0.0, 3.5]) color: #orange;
+		}
+		if(!contains(wishList, "signed shirts"))
+		{
+			//point shirtLocation <- location + point([0.0, 0.0, 1.0]);
+			draw cylinder(2.02, 1.5) at: location + point([0.0, 0.0, 1.0]) color: #lime;
+		}
+		if(!contains(wishList, "posh pants"))
+		{
+			//point shirtLocation <- location + point([0.0, 0.0, 0.0]);
+			draw cylinder(2.01, 1.5) at: location color: #pink;
+		}
+	}
+	
+	/*
+	 * If the guest's wish list does not contain their current preference,
+	 * it means they've acquired that item
+	 * and that they should pick a new preference from the remaining items
+	 */
+	reflex getNewPreference when: !empty(wishList) and !contains(wishList, preferredItem)
+	{
+		preferredItem <- wishList[rnd(length(wishList) - 1)];
 	}
 	
 	/*
@@ -257,6 +261,23 @@ species Guest skills:[moving, fipa]
 		hunger <- 100.0;
 		thirst <- 100.0;
 		isConscious <- true;
+		color <- #red;
+		
+		// Free any ambulance from getting this guest
+		ask Ambulance
+		{
+			if(targetGuest = myself)
+			{
+				targetGuest <- nil;
+				deliveringGuest <- false;
+			}
+		}
+		// Also remove this guest from the hospital's lists
+		ask Hospital
+		{
+			unconsciousGuests >- myself;
+			underTreatment >- myself;
+		}
 		
 		if(location distance_to(targetAuction.location) > 9)
 		{
@@ -535,8 +556,8 @@ species Guest skills:[moving, fipa]
 		}
 		else if(requestFromInitiator.contents[0] = 'Winner')
 		{
-			wonAuction <- true;
 			write name + ' won the auction for ' + preferredItem;
+			wishList >- preferredItem;
 			if(preferredItem = "posh pants")
 			{
 				write "Go Pants !!!";
@@ -750,13 +771,16 @@ species Hospital parent: Building
 /*
  * The ShowMaster creates auctioners and controls Stages, so that they will take turns
  */
-species ShowMaster skills:[fipa] parent: Building
+species ShowMaster
 {
 	bool auctionersCreated <- false;
 	rgb myColor <- rnd_color(255);
 	int mySize <- 10;
 	bool auctionersInPosition <- false;
 	list<Auctioner> auctioners <- [];
+	
+	bool stagesCreated <- false;
+	list<Stage> stages <- [];
 	
 	aspect
 	{
@@ -783,7 +807,7 @@ species ShowMaster skills:[fipa] parent: Building
 	 * This creates the auctioners within the set time limits from the beginning.
 	 * auctionCreationMin and auctionCreationMax set at the top
 	 */
-	reflex createAuctioners when: !auctionersCreated and time rnd(auctionCreationMin, auctionCreationMax)
+	reflex createAuctioners when: !auctionersCreated and !runShows
 	{
 		string genesisString <- name + " creating auctions: ";
 		
@@ -803,11 +827,67 @@ species ShowMaster skills:[fipa] parent: Building
 	}
 	
 	/*
-	 * 
+	 * Ask if auctioners are done running around
+	 * TODO: document auctioneers returning and being sent out again
 	 */
-	reflex auctionersAreInPosition
+	reflex startAuctions when: auctionersCreated and !runAuctions and !runShows
 	{
-		
+		bool stillOnTheWay <- false;
+		loop auc over: auctioners
+		{
+			// If any of the auctioners hasn't reached its location yet, return and do nothing.
+			if(auc.targetLocation != nil)
+			{
+				stillOnTheWay <- true;
+			}
+		}
+		if(!stillOnTheWay)
+		{
+			auctionersInPosition <- true;
+			write name + " notified auctioners are in position, starting auctions soon.";
+			runAuctions <- true;	
+		}
+	}
+	
+	/*
+	 * When auctioners return, they remove themselves from the auctioner list and do die
+	 * When the list is empty and auctions are running, means all the auctioners have returned
+	 * 
+	 * Start shows and set auctionersCreated and runAuctions to false so they can be created again
+	 */
+	reflex areThereAnyAuctionersLeft when: empty(auctioners) and runAuctions
+	{
+		write name + " knows the auctioners have served their purpose";
+		auctionersCreated <- false;
+		runAuctions <- false;
+		runShows <- true;
+	}
+	
+	/*
+	 * This creates the stages within the set time limits from the beginning.
+	 * auctionCreationMin and auctionCreationMax set at the top
+	 */
+	reflex createstages when: !stagesCreated and runShows
+	{
+		create Stage number: stageNumber
+		{
+			myself.stages <+ self;
+		}
+		stagesCreated <- true;
+		write name + " has created stages";
+	}
+
+	/*
+	 * When stages' shows are finished, they remove themselves from the auctioner list and do die
+	 * When the list is empty and shows are running, means all the stages have returned
+	 * 
+	 * Start shows and set stagesCreated and runAuctions to false so they can be created again
+	 */
+	reflex areThereAnystagesLeft when: empty(stages) and runShows and stagesCreated
+	{
+		write name + " knows the stages have finished";
+		stagesCreated <- false;
+		runShows <- false;
 	}
 }
 
@@ -873,6 +953,10 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 		if(auctionRunning)
 	 		{
 	 			write name + " has served its purpose";
+	 			ask ShowMaster
+	 			{
+	 				auctioners >- myself;
+	 			}
 	 			do die;
 	 		}
 	 		write name + " has reached targetLocation";
@@ -892,9 +976,10 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 * The auction will start once the guests have gathered
 	 * 
 	 * startAnnounced is here to ensure we don't spam the announcement message
-	 * TODO: set starting time to something more interesting
+	 * 
+	 * runAuctions is set to true / false by the showMaster
 	 */
-	reflex sendStartAuction when: !auctionRunning and startAuctions and targetLocation = nil and !startAnnounced
+	reflex sendStartAuction when: !auctionRunning and runAuctions and targetLocation = nil and !startAnnounced
 	{
 		write name + " starting " + auctionType + " soon";
 		do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ['Start', soldItem]);
@@ -1054,12 +1139,15 @@ species Stage
 {
 	float mySize <- 10.0;
 	rgb myColor <- #gray;
-	bool showIsOn <- false;
-	string stageGenre;
+	
+	bool showExpired <- false;
+	float startTime <- time;
+	// The duration how long the show will run after starting
+	int duration <- rnd(durationMin, durationMax);
 	
 	// Stages will periodically start shows
-	float stopTime <- time;
-	int startInterval <- rnd(startIntervalMin, startIntervalMax);
+//	float stopTime <- time;
+//	int startInterval <- rnd(startIntervalMin, startIntervalMax);
 	
 	// Each guest as a set of preferences for stages
 	// These are used to calculate utility when deciding which stage to go to
@@ -1068,10 +1156,11 @@ species Stage
 	int stageShow <- rnd(stageParameterMin,stageParameterMax);
 	int stageFashionability <- rnd(stageParameterMin,stageParameterMax);
 	int stageDanceability <- rnd(stageParameterMin,stageParameterMax);
+	string stageGenre;
 	
 	aspect default
 	{
-		if(!showIsOn)
+		if(!runShows)
 		{
 			mySize <- 10.0;
 			myColor <- #gray;
@@ -1082,7 +1171,7 @@ species Stage
 	/*
 	 * If a show is on, flash colors and size
 	 */
-	reflex casinoLigths when: showIsOn
+	reflex casinoLigths when: runShows and !showExpired
 	{
 		myColor <- rnd_color(255);
 		if(flip(0.5) and mySize < 15)
@@ -1096,12 +1185,18 @@ species Stage
 	}
 	
 	/*
-	 * When startInterval amount of cycles have passed since the show last ended
+	 * When the time is greater than the start time + duration, the show has run for long enough and will end
 	 */
-	reflex startShow when: !showIsOn and stopTime + startInterval <= time
+	reflex showMustNotGoOn when: time >= startTime + duration
 	{
-		
-	}
+		write name + " show has finished";
+		ask ShowMaster
+		{
+			stages >- myself;
+		}
+		do die;
+	}	
+	
 }
 
 // ################ Buildings end ################
