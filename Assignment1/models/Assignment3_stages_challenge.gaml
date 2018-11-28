@@ -428,7 +428,7 @@ species Guest skills:[moving, fipa]
 	/*
 	 * Guests will pick a stage when shows are running and when they have calculated utilities
 	 */
-	 reflex pickStage when: !empty(stageUtilities) and !empty(showMaster.stages) and length(stageUtilities) = length(showMaster.stages) and targetStage = nil
+/*	 reflex pickStage when: !empty(stageUtilities) and !empty(showMaster.stages) and length(stageUtilities) = length(showMaster.stages) and targetStage = nil
 	 {
 	 	float highestUtility <- 0.0;
 	 	loop i from: 0 to: length(stageUtilities)-1
@@ -440,7 +440,7 @@ species Guest skills:[moving, fipa]
 	 		}
 	 	}
 	 	write name + " has picked targetStage " + targetStage;
-	 }
+	 }*/
 	
 	/* 
 	 * Reduce thirst and hunger with a random value between 0 and 0.5
@@ -1060,7 +1060,7 @@ species ShowMaster
 	
 	/*
 	 * The ShowMaster will coordinate guests around to the stages 
-	 *
+	 */
 	 reflex coordinateGuests when: runShows and stagesCreated
 	 {
 	 	ask Guest
@@ -1079,7 +1079,7 @@ species ShowMaster
 			 	}	
 	 		}
 	 	}
-	 } */
+	 }
 }
 
 /*
