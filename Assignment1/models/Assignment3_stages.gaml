@@ -16,7 +16,7 @@ global
 	
 	// the rate at which guests grow hungry / thirsty
 	// every reflex we reduce hunger / thirst by rnd(0,rate) * 0.1
-	int hungerRate <- 5;
+	int hungerRate <- 2;
 	
 	/*
 	 * Building configs
@@ -32,8 +32,12 @@ global
 	point showMasterLocation <- {-10,50};
 	list<string> itemsAvailable <- ["branded backpacks","signed shirts","heavenly hats", "posh pants"];
 	list<string> auctionTypes <- ["Dutch", "English", "Sealed"];
+	int auctionerWaitTime <- 10;
 	// This is managed by the ShowMaster
 	bool runAuctions <- false;
+	// The range for the pause between auctions/shows
+	int showMasterIntervalMin <- 100;
+	int showMasterIntervalMax <- 300;
 	
 	// Time when auctioneers are created
 	int auctionCreationMin <- 150;
@@ -65,15 +69,29 @@ global
 	/*
 	 * Stage configs
 	 */
-	int stageNumber <- 3;
-	int stageParameterMin <- 0;
+	int stageNumber <- 4;
+	int stageParameterMin <- 1;
 	int stageParameterMax <- 100;
-	// How often stages have shows
-//	int startIntervalMin <- 30;
-//	int startIntervalMax <- 100;
-	int durationMin <- 50;
-	int durationMax <- 200;
-	list<string> genresAvailable <- [""];
+	int durationMin <- 400;
+	int durationMax <- 700;
+	list<string> genresAvailable <- ["sensational synthwave"
+									,"trashy techno"
+									,"dope darkwave"
+									,"80's mega hits"
+									,"traditional Russian song techno remixes"
+									,"Sandstorm"
+									,"incredible Italo Disco"
+									,"impressive industrial"
+									,"generic German New Wave"
+									,"pompous punk rock"
+									,"old people rock"
+									,"extreme experimental"
+									,"rubber chicken Despacito"
+									,"ingenious indigenous instrumental"
+									,"pungmul"
+									,"pansori"
+									,"geomungo sanjo"
+									];
 	bool runShows <- false;
 	
 	/*
@@ -86,12 +104,18 @@ global
 	
 	init
 	{
+		/*
+		 * Number of auctioners is defined above 
+		 */
+		create ShowMaster number: 1
+		{
+			location <- showMasterLocation;
+		}
+		
 		/* Create guestNumber (defined above) amount of Guests */
 		create Guest number: guestNumber
 		{
-			// Each guest prefers a random item
-			preferredItem <- itemsAvailable[rnd(length(itemsAvailable) - 1)];
-			preferenceStageGenre <- genresAvailable[rnd(length(genresAvailable) - 1)];
+
 		}
 		
 				
@@ -135,14 +159,6 @@ global
 		create Ambulance number: ambulanceNumber
 		{
 			
-		}
-		
-		/*
-		 * Number of auctioners is defined above 
-		 */
-		create ShowMaster number: 1
-		{
-			location <- showMasterLocation;
 		}
 	}
 	
@@ -193,8 +209,8 @@ species Guest skills:[moving, fipa]
 	// They will be removed by the security
 	bool isBad <- flip(0.2);
 	
-	// each guest prefers a single piece of merchandice
-	string preferredItem;
+	// Each guest prefers a random item out of the items they do not have
+		string preferredItem <- itemsAvailable[rnd(length(itemsAvailable) - 1)];
 	
 	// A list of all the items the guest does not have
 	list<string> wishList <- ["branded backpacks","signed shirts","heavenly hats", "posh pants"];
@@ -206,7 +222,15 @@ species Guest skills:[moving, fipa]
 	float preferenceStageShow <- rnd(stageParameterMin,stageParameterMax) * 0.01;
 	float preferenceStageFashionability <- rnd(stageParameterMin,stageParameterMax) * 0.01;
 	float preferenceStageDanceability <- rnd(stageParameterMin,stageParameterMax) * 0.01;
-	string preferenceStageGenre;
+	// the guest's preferred genre and how strongly they prefer it
+	string preferenceStageGenre <- genresAvailable[rnd(length(genresAvailable) - 1)];
+	float preferenceStageGenreBias <- 1.0 + rnd(0.0,10.0);
+	// The max size of the crowd the guest is willing to tolerate and how strongly they prefer this
+	int preferenceStageCrowdSize <- rnd(1,guestNumber);
+	float preferenceStageCrowdSizeBias <- 1.0 + rnd(0.0,1.0);
+	list<float> stageUtilities <- [];
+	ShowMaster showMaster <- one_of(ShowMaster);
+	Stage targetStage <- nil;
 	
 	aspect default
 	{
@@ -237,6 +261,27 @@ species Guest skills:[moving, fipa]
 			draw cylinder(2.01, 1.5) at: location color: #pink;
 		}
 	}
+	
+	/*
+	 * This might come up with stages, but not otherwise
+	 */
+	reflex isTargetAlive when: target != nil
+	{
+		if(dead(target))
+		{
+			target <- nil;
+			targetStage <- nil;
+		}
+	}
+	
+	/*
+	 * common reflex for reaching target
+	 * could be stage or store
+	 */
+	 reflex targetReached when: target != nil and location distance_to(target.location) <= infoCenterDetectionDistance
+	 {
+	 	target <- nil;
+	 }
 	
 	/*
 	 * If the guest's wish list does not contain their current preference,
@@ -288,6 +333,113 @@ species Guest skills:[moving, fipa]
 			target <- nil;
 		}
 	}
+	
+	/*
+	 * Guests will continuously evaluate their utilities for the stages
+	 * 
+	 * Stages have the following attributes:
+	 * int stageLights
+	 * int stageMusic
+	 * int stageShow
+	 * int stageFashionability
+	 * int stageDanceability
+	 * string stageGenre
+	 * list<Guest> crowdAtStage
+	 * 
+	 * Guests have the following attributes:
+	 * float preferenceStageLights
+	 * float preferenceStageMusic
+	 * float preferenceStageShow
+	 * float preferenceStageFashionability
+	 * float preferenceStageDanceability
+	 * 
+	 * the guest's preferred genre and how strongly they prefer it
+	 * string preferenceStageGenre
+	 * float preferenceStageGenreBias
+	 * 
+	 * The max size of the crowd the guest is willing to tolerate and how strongly they prefer this
+	 * int preferenceStageCrowdSize
+	 * float preferenceStageCrowdSizeBias
+	 */
+	reflex calculateUtilities
+	{
+		/*
+		 * The ShowMaster has a list of the stages
+		 * Go through the list and calculate and save utility for each stage, then pick the highest
+		 * 
+		 * only calculate the general utility once for each stage, crowd utility is calculated every cycle
+		 */
+		 ask showMaster
+		 {
+		 	// If stages is empty, remove utilities from guest
+		 	if(!empty(stages))
+		 	{
+			 	loop i from: 0 to: length(stages)-1
+			 	{
+			 		Stage stg <- stages[i];
+			 		if(length(myself.stageUtilities) < length(stages))
+			 		{
+			 			// Calculate utility by taking the stage's vars and multiplying them by the corresponding preference
+						float utility <- stg.stageLights * myself.preferenceStageLights +
+										stg.stageMusic * myself.preferenceStageMusic +
+										stg.stageShow * myself.preferenceStageShow +
+										stg.stageShow * myself.preferenceStageFashionability +
+										stg.stageShow * myself.preferenceStageDanceability;
+										
+			 			string preferenceString <- myself.name + " has calculated utility for " + stg.name + ": ";
+						
+						// if the stage's genre does not match the Guest's preference, multiply by bias
+						if(stg.stageGenre = myself.preferenceStageGenre)
+						{
+							utility <- utility * myself.preferenceStageGenreBias;
+							preferenceString <- preferenceString + " (preferred genre) ";
+						}
+						// Add stage / utility pair to stageUtilities
+						// Couldn't get pairs working, so we'll just keep utilities in a list of floats
+						myself.stageUtilities <+ utility;
+						write preferenceString + myself.stageUtilities[i];
+			 		}
+			 	}
+			 	
+		 		// also look at the crowd size
+		 		/*
+			 	loop i from: 0 to: length(stages)-1
+			 	{
+			 		Stage stg <- stages[i];
+			 		// if the crowd is bigger than the preferred crowd size, multiply utility by bias
+		 			if(length(stg.crowdAtStage) > myself.preferenceStageCrowdSize)
+		 			{
+		 				write myself.name + " thinks crowd at " + stg.name + " is too big - utilty is " + myself.stageUtilities[i];
+		 				myself.stageUtilities[i] <- myself.stageUtilities[i] * myself.preferenceStageCrowdSizeBias;
+		 			}
+		 		}
+		 		*/
+		 		
+		 	}
+		 	// If stages is empty, remove utilities from guest
+		 	else
+		 	{
+		 		myself.stageUtilities <- [];
+		 	}
+
+		 }
+	}
+	
+	/*
+	 * Guests will pick a stage when shows are running and when they have calculated utilities
+	 */
+	 reflex pickStage when: !empty(stageUtilities) and !empty(showMaster.stages) and length(stageUtilities) = length(showMaster.stages) and targetStage = nil
+	 {
+	 	float highestUtility <- 0.0;
+	 	loop i from: 0 to: length(stageUtilities)-1
+	 	{
+	 		if(stageUtilities[i] >= highestUtility)
+	 		{
+	 			highestUtility <- stageUtilities[i];
+	 			targetStage <- showMaster.stages[i];
+	 		}
+	 	}
+	 }
 	
 	/* 
 	 * Reduce thirst and hunger with a random value between 0 and 0.5
@@ -400,28 +552,28 @@ species Guest skills:[moving, fipa]
 	}
 
 	/* 
-	 * Agents will pick a stage to go ot if they have nothing else to do.
-	 * Otherwise guests will wander
+	 * If everything is ok with the guest, they will set their target stage as their target
+	 * if they have nothing else to do, guests will wander
 	 */
-	reflex findConcertOrBeIdle when: target = nil and isConscious
+	reflex gotoStageOrBeIdle when: target = nil and isConscious
 	{
-		/*
-		 * Guests know the locations of all the stages
-		 */
-		ask Stage
+		if(targetStage != nil and location distance_to(targetStage) > infoCenterDetectionDistance)
 		{
-			
+			target <- targetStage;
 		}
-		do wander;
+		else
+		{
+			do wander;	
+		}
 	}
 
 	/* 
 	 * Agent's default behavior when target not set and they are conscious
 	 */
-	reflex beIdle when: target = nil and isConscious
-	{
-		do wander;
-	}
+//	reflex beIdle when: target = nil and isConscious
+//	{
+//		do wander;
+//	}
 	
 	/* 
 	 * When agent has target, move towards target
@@ -519,7 +671,7 @@ species Guest skills:[moving, fipa]
 		//End of auction
 		else if(requestFromInitiator.contents[0] = 'Stop')
 		{
-			write name + ' knows the auction is over.';
+//			write name + ' knows the auction is over.';
 			targetAuction <- nil;
 			target <- nil;
 		}
@@ -548,7 +700,7 @@ species Guest skills:[moving, fipa]
 			//can't bid more
 			else
 			{
-				write name + ": Too much for me, I'm out guyzz";
+//				write name + ": Too much for me, I'm out guyzz";
 				do reject_proposal (message: requestFromInitiator, contents: ["Too much for me, I'm out guyzz"]);
 				targetAuction <- nil;
 				target <- nil;
@@ -773,14 +925,17 @@ species Hospital parent: Building
  */
 species ShowMaster
 {
-	bool auctionersCreated <- false;
 	rgb myColor <- rnd_color(255);
 	int mySize <- 10;
-	bool auctionersInPosition <- false;
+	bool auctionersCreated <- false;
 	list<Auctioner> auctioners <- [];
+	bool auctionersInPosition <- false;
 	
 	bool stagesCreated <- false;
 	list<Stage> stages <- [];
+	
+	//For tracking when did the last auction/show end
+	float endTime <- 0.0;
 	
 	aspect
 	{
@@ -807,7 +962,7 @@ species ShowMaster
 	 * This creates the auctioners within the set time limits from the beginning.
 	 * auctionCreationMin and auctionCreationMax set at the top
 	 */
-	reflex createAuctioners when: !auctionersCreated and !runShows
+	reflex createAuctioners when: !auctionersCreated and !runShows and time > endTime + rnd(showMasterIntervalMin, showMasterIntervalMax)
 	{
 		string genesisString <- name + " creating auctions: ";
 		
@@ -857,38 +1012,65 @@ species ShowMaster
 	 */
 	reflex areThereAnyAuctionersLeft when: empty(auctioners) and runAuctions
 	{
-		write name + " knows the auctioners have served their purpose";
 		auctionersCreated <- false;
 		runAuctions <- false;
 		runShows <- true;
+		endTime <- time;
+		write name + " knows the auctioners have served their purpose at " + endTime;
 	}
 	
 	/*
 	 * This creates the stages within the set time limits from the beginning.
 	 * auctionCreationMin and auctionCreationMax set at the top
 	 */
-	reflex createstages when: !stagesCreated and runShows
+	reflex createstages when: !stagesCreated and runShows and time > endTime + rnd(showMasterIntervalMin, showMasterIntervalMax)
 	{
+		string genesisString <- name + "creating stages: ";
 		create Stage number: stageNumber
 		{
 			myself.stages <+ self;
+			genesisString <- genesisString + name + " with " + stageGenre + " ";
 		}
 		stagesCreated <- true;
-		write name + " has created stages";
+		write genesisString;
 	}
 
 	/*
-	 * When stages' shows are finished, they remove themselves from the auctioner list and do die
-	 * When the list is empty and shows are running, means all the stages have returned
+	 * When stages' shows are finished, they remove themselves from the stages list and do die
+	 * When the list is empty and shows are running, means all the stages have finished
 	 * 
-	 * Start shows and set stagesCreated and runAuctions to false so they can be created again
+	 * set stagesCreated and runShows to false so they can be created again
 	 */
 	reflex areThereAnystagesLeft when: empty(stages) and runShows and stagesCreated
 	{
-		write name + " knows the stages have finished";
 		stagesCreated <- false;
 		runShows <- false;
+		endTime <- time;
+		write name + " knows the stages have finished at " + endTime;
 	}
+	
+	/*
+	 * The ShowMaster will coordinate guests around to the stages 
+	 *
+	 reflex coordinateGuests when: runShows and stagesCreated
+	 {
+	 	ask Guest
+	 	{
+	 		if(!empty(stageUtilities) and target = nil)
+	 		{
+		 		float highestUtility <- 0.0;
+			 	loop i from: 0 to: length(stageUtilities)-1
+			 	{
+			 		if(stageUtilities[i] >= highestUtility)
+			 		{
+			 			highestUtility <- stageUtilities[i];
+			 			target <- myself.stages[i];
+			 			write name + " heading to " + target;
+			 		}
+			 	}	
+	 		}
+	 	}
+	 } */
 }
 
 /*
@@ -915,11 +1097,16 @@ species Auctioner skills:[fipa, moving] parent: Building
 	int currentBid <- 0;
 	string currentWinner <- nil;
 	message winner <- nil;
+	
+	// This is for recording how long the auctioner has waited for guests to join interested guests
+	float startTime;
 
 	// The kind of an item the merchant is selling
 	string soldItem <- "";
 	// The guests participating in the auction
 	list<Guest> interestedGuests;
+	// if the auctioner has announced that it had no interested guests
+	bool dieAnnounced <- false;
 
 	aspect
 	{
@@ -950,7 +1137,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 	if(location distance_to targetLocation <= 0.1)
 	 	{
 	 		// If this auctioner has already performed an auction
-	 		if(auctionRunning)
+	 		if(auctionRunning or dieAnnounced)
 	 		{
 	 			write name + " has served its purpose";
 	 			ask ShowMaster
@@ -969,6 +1156,16 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 		mySize <- 5;
 	 	}
 	 }
+	 
+	 /*
+	  * When start has been announced, but there's no guests on the interestedGuests, go home
+	  */
+	  reflex guessIllDie when: startAnnounced and empty(interestedGuests) and time >= startTime + auctionerWaitTime and !auctionRunning and !dieAnnounced
+	  {
+	  	write name + " no guests were interested, guess I'll die";
+	  	targetLocation <- showMasterLocation;
+	  	dieAnnounced <- true;
+	  }
 	
 	/*
 	 * Send out the first auction message to all guest after a random amount of time
@@ -984,6 +1181,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 		write name + " starting " + auctionType + " soon";
 		do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ['Start', soldItem]);
 		startAnnounced <- true;
+		startTime <- time;
 	}
 	
 	/*
@@ -1002,7 +1200,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 	{
 		if(auctionType = "Dutch")
 		{
-			write name + ' receives accept messages';
+//			write name + ' receives accept messages';
 			
 			loop a over: accept_proposals {
 				write name + ' got accepted by ' + a.sender + ': ' + a.contents;
@@ -1026,10 +1224,9 @@ species Auctioner skills:[fipa, moving] parent: Building
 		if(auctionType = "Sealed")
 		{
 			targetLocation <- showMasterLocation;
-//			auctionRunning <- false;
 
 			loop p over: proposes {
-				write name + ' got an offer from ' + p.sender + ' of ' + p.contents[1] + ' pesos.';
+//				write name + ' got an offer from ' + p.sender + ' of ' + p.contents[1] + ' pesos.';
 				if(currentBid < int(p.contents[1]))
 				{
 					currentBid <- int(p.contents[1]);
@@ -1038,7 +1235,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 				}
 			}
 			do start_conversation (to: winner.sender, protocol: 'fipa-propose', performative: 'cfp', contents: ['Winner']);
-			write name + ' bid ended. Sold to ' + currentWinner + ' for: ' + currentBid;
+//			write name + ' bid ended. Sold to ' + currentWinner + ' for: ' + currentBid;
 			do accept_proposal with: (message: winner, contents: ['Item is yours']);
 			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ["Stop"]);
 			interestedGuests <- [];
@@ -1046,7 +1243,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 		else if(auctionType = "English")
 		{
 			loop p over: proposes {
-				write name + ' got an offer from ' + p.sender + ' of ' + p.contents[1] + ' pesos.';
+//				write name + ' got an offer from ' + p.sender + ' of ' + p.contents[1] + ' pesos.';
 				if(currentBid < int(p.contents[1]))
 				{
 					currentBid <- int(p.contents[1]);
@@ -1067,7 +1264,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 	{
 		if(auctionType = "Dutch")
 		{
-			write name + ' receives reject messages';
+//			write name + ' receives reject messages';
 			
 			auctionerDutchPrice <- auctionerDutchPrice - rnd(dutchAuctionDecreaseMin, dutchAuctionDecreaseMax);
 			if(auctionerDutchPrice < auctionerMinimumValue)
@@ -1116,17 +1313,17 @@ species Auctioner skills:[fipa, moving] parent: Building
 	reflex sendAuctionInfo when: auctionRunning and !empty(interestedGuests){
 		if(auctionType = "Dutch")
 		{
-			write name + ' sends the offer of ' + auctionerDutchPrice +' pesos to participants';
+//			write name + ' sends the offer of ' + auctionerDutchPrice +' pesos to participants';
 			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'propose', contents: ['Buy my merch, peasant', auctionType, auctionerDutchPrice]);
 		}
 		else if(auctionType = "English")
 		{
-			write 'Auctioner ' + name + ': current bid is: ' + currentBid + '. Offer more or miss your chance!';
+//			write 'Auctioner ' + name + ': current bid is: ' + currentBid + '. Offer more or miss your chance!';
 			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ["Bid for English", currentBid]);
 		}
 		else if(auctionType = "Sealed")
 		{
-			write name + ' time to offer your money!!';
+//			write name + ' time to offer your money!!';
 			do start_conversation (to: interestedGuests, protocol: 'fipa-propose', performative: 'cfp', contents: ['Bid For Sealed']);
 		}
 	}	
@@ -1135,7 +1332,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 /*
  * Stages are mostly passive, just playing their concerts for a random time
  */
-species Stage
+species Stage parent: Building
 {
 	float mySize <- 10.0;
 	rgb myColor <- #gray;
@@ -1145,10 +1342,6 @@ species Stage
 	// The duration how long the show will run after starting
 	int duration <- rnd(durationMin, durationMax);
 	
-	// Stages will periodically start shows
-//	float stopTime <- time;
-//	int startInterval <- rnd(startIntervalMin, startIntervalMax);
-	
 	// Each guest as a set of preferences for stages
 	// These are used to calculate utility when deciding which stage to go to
 	int stageLights <- rnd(stageParameterMin,stageParameterMax);
@@ -1156,7 +1349,10 @@ species Stage
 	int stageShow <- rnd(stageParameterMin,stageParameterMax);
 	int stageFashionability <- rnd(stageParameterMin,stageParameterMax);
 	int stageDanceability <- rnd(stageParameterMin,stageParameterMax);
-	string stageGenre;
+	string stageGenre <- genresAvailable[rnd(length(genresAvailable) - 1)];
+	
+	// Stages keep a record of their crowd sizes
+	list<Guest> crowdAtStage <-[];
 	
 	aspect default
 	{
@@ -1185,11 +1381,29 @@ species Stage
 	}
 	
 	/*
+	 * The stage includes all the guests in the vicinity and doesn't care if they are actually following the show
+	 * i.e. just a large crowd of passerbys could influence a guest's choice of stage
+	 */
+	reflex calculateCrowdSize
+	{
+		// First empty the list
+		crowdAtStage <- [];
+		// Include any Guest at_distance 13 to crowd list if not already included on the list
+		ask Guest at_distance 13
+		{
+			if(!contains(myself.crowdAtStage, self))
+			{
+				myself.crowdAtStage <+ self;
+			}
+		}
+	}
+	
+	/*
 	 * When the time is greater than the start time + duration, the show has run for long enough and will end
 	 */
 	reflex showMustNotGoOn when: time >= startTime + duration
 	{
-		write name + " show has finished";
+		write name + "'s " + stageGenre + " show has finished";
 		ask ShowMaster
 		{
 			stages >- myself;
