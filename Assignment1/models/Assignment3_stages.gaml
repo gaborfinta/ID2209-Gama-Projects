@@ -93,6 +93,7 @@ global
 									,"geomungo sanjo"
 									];
 	bool runShows <- false;
+	list<rgb> stageColors <- [#lime, #pink, #lightblue, #purple];
 	
 	/*
 	 * Other agent configs
@@ -439,6 +440,7 @@ species Guest skills:[moving, fipa]
 	 			targetStage <- showMaster.stages[i];
 	 		}
 	 	}
+	 	write name + " has picked targetStage " + targetStage;
 	 }
 	
 	/* 
@@ -561,7 +563,7 @@ species Guest skills:[moving, fipa]
 		{
 			targetStage <- nil;
 		}
-		if(targetStage != nil and location distance_to(targetStage) > infoCenterDetectionDistance)
+		if(targetStage != nil and location distance_to(targetStage) > 13)
 		{
 			target <- targetStage;
 		}
@@ -1027,13 +1029,17 @@ species ShowMaster
 	 * This creates the stages within the set time limits from the beginning.
 	 * auctionCreationMin and auctionCreationMax set at the top
 	 */
-	reflex createstages when: !stagesCreated and runShows and time > endTime + rnd(showMasterIntervalMin, showMasterIntervalMax)
+	reflex createStages when: !stagesCreated and runShows and time > endTime + rnd(showMasterIntervalMin, showMasterIntervalMax)
 	{
 		string genesisString <- name + "creating stages: ";
-		create Stage number: stageNumber
+//		create Stage number: stageNumber
+		int counter <- 0;
+		create Stage number: length(stageColors)
 		{
 			myself.stages <+ self;
-			genesisString <- genesisString + name + " with " + stageGenre + " ";
+			myColor <- stageColors[counter];
+			genesisString <- genesisString + name + " (" + myColor + ") with " + stageGenre + " ";
+			counter <- counter + 1;
 		}
 		stagesCreated <- true;
 		write genesisString;
@@ -1371,7 +1377,7 @@ species Stage parent: Building
 	/*
 	 * If a show is on, flash colors and size
 	 */
-	reflex casinoLigths when: runShows and !showExpired
+/*	reflex casinoLigths when: runShows and !showExpired
 	{
 		myColor <- rnd_color(255);
 		if(flip(0.5) and mySize < 15)
@@ -1382,7 +1388,7 @@ species Stage parent: Building
 		{
 			mySize <- mySize - 1;
 		}
-	}
+	}*/
 	
 	/*
 	 * The stage includes all the guests in the vicinity and doesn't care if they are actually following the show
