@@ -12,11 +12,13 @@ global
 	 */
 	// N is the number of Queens
 	// Same number also defines how many squares there should be for the floor
-	int N <- 12;
+	int N <- 16;
 	float tileSize <- 100 / (N);
 	
-	matrix availableCells <- 1 as_matrix({N, N});
-	list<pair<int, int>> placedQueenPositions;
+	//matrix availableCells <- 1 as_matrix({N, N});
+	
+	//list containing the index of column corresponsing to the queen. placedQueens[2] = 1 means second queen is placed in first column
+	list<int> placedQueens;
 	
 	init
 	{
@@ -53,7 +55,7 @@ species YasQueen skills: [moving, fipa]
 		if(ownIndex = 0)
 		{
 			column <- 0;
-			placedQueenPositions <+ column :: row;
+			placedQueens <+ column;
 			do updateBoardInfo;
 		}
 		do updateLocation;
@@ -88,7 +90,7 @@ species YasQueen skills: [moving, fipa]
 	/*
 	 * Predecessor queen will place the next one if predecessor is the last one placed 
 	 */
-	reflex placeNextQueen when: ownIndex < N - 1 and length(placedQueenPositions) = ownIndex + 1 and !needsToStep and empty(requests)
+	reflex placeNextQueen when: ownIndex < N - 1 and length(placedQueens) = ownIndex + 1 and !needsToStep and empty(requests)
 	{
 		do placeNextQueen;
 	}
@@ -107,15 +109,18 @@ species YasQueen skills: [moving, fipa]
 		{
 			needsToStep <- false;
 			column <- int(request.contents[1]);
-			placedQueenPositions <+ column :: row;
+			placedQueens <+ column;
 			do updateBoardInfo;
 		}
 		else if(request.contents[0] = 'cancel')
 		{
-			write 'placedQueenPositions: ' + placedQueenPositions;
-			write 'removing: ' + (column :: row) + ' if it was in the placed queens list';
-			placedQueenPositions >- column :: row;
-			write 'placedQueenPositions: ' + placedQueenPositions;
+			write 'placedQueens: ' + placedQueens;
+			write 'removing last element: ' + column + ' if it was in the placed queens list';
+			if(length(placedQueens) = row + 1)
+			{
+				placedQueens[] >- row;
+			}
+			write 'placedQueenPositions: ' + placedQueens;
 			column <- -1;
 			do updateBoardInfo(false);
 		}
@@ -159,15 +164,15 @@ species YasQueen skills: [moving, fipa]
 			needsToStep <- true;
 			write 'Queen ' + ownIndex + ' asks preceeding one to step her';
 			int currCol <- column;
-			placedQueenPositions >- column :: row;
+			placedQueens[] >- row;
 			do updateBoardInfo(false);
 			do start_conversation (to: [preceedingQueen], protocol: 'fipa-request', performative: 'request', contents: ['step me', currCol]);	
 		}
 		else
 		{
-			placedQueenPositions >- column :: row;
+			placedQueens[] >- row;
 			column <- column + 1;
-			placedQueenPositions <+ column :: row;
+			placedQueens <+ column;
 			do updateBoardInfo(false);
 		}
 	}
@@ -178,18 +183,51 @@ species YasQueen skills: [moving, fipa]
 	 */
 	action placeNextQueen
 	{
-		if(first_with(range(N - 1), availableCells[each, succeedingQueen.row] = 1) = nil)
+		int toStep <- self findAvailableColumn[];
+		
+		if(toStep = -1)
 		{
-			do cantPlaceNextQueen;
+			do cantPlaceNextQueen;			
 		}
 		else
 		{
-			int toPlace <- first_with(range(N - 1), availableCells[each, succeedingQueen.row] = 1);
-			write 'Queen ' + ownIndex + ' requesting next queen to place itself to: ' + toPlace;
-			do start_conversation (to: [succeedingQueen], protocol: 'fipa-request', performative: 'request', contents: ['place', int(toPlace)]);
+			write 'Queen ' + ownIndex + ' requesting next queen to place itself to: ' + toStep;
+			do start_conversation (to: [succeedingQueen], protocol: 'fipa-request', performative: 'request', contents: ['place', toStep]);
 		}
 	}
 	
+	int findAvailableColumn(int startColumn <- 0)
+	{
+		bool foundPotentialColumn <- false;
+		int potentialColumn <- startColumn;
+		loop while: !foundPotentialColumn and potentialColumn < N
+		{
+			bool foundThreateningQueen <- false;
+			int i <- 0;
+			loop while: !foundThreateningQueen and i < length(placedQueens)
+			{
+				//check for same column and diagonal
+				//write 'row - i = ' + row + ' ' + i + ' ' + (row - i);
+				//write 'potentialColumn - placedQueens[i] = ' + potentialColumn + ' ' + placedQueens[i] + ' ' + (potentialColumn - placedQueens[i]);
+				foundThreateningQueen <- placedQueens[i] = potentialColumn or abs(row + 1 - i) = abs(potentialColumn - placedQueens[i]);
+				i <- i + 1;
+			}
+			foundPotentialColumn <- !foundThreateningQueen;
+			if(foundThreateningQueen)
+			{
+				potentialColumn <- potentialColumn + 1;
+			}
+		}
+		if(!foundPotentialColumn)
+		{
+			return -1;
+		}
+		else
+		{
+			return potentialColumn;
+		}
+		
+	}
 	
 	/*
 	 * Current queen steps the succeeding one to the next available place.
@@ -198,33 +236,16 @@ species YasQueen skills: [moving, fipa]
 	action stepNextQueen(int currPos)
 	{
 		write 'Queen ' + ownIndex + ' trying to step next queen';
-		list<int> availablePlaces <- where(range(N - 1), availableCells[each, succeedingQueen.row] = 1);
-		if (empty(availablePlaces))
+		
+		int toStep <- self findAvailableColumn[startColumn:: currPos + 1];
+		
+		if(toStep = -1)
 		{
-			//btw, this condition should not be true ever 
-			//can't place queen
-			do cantPlaceNextQueen;
+			do cantPlaceNextQueen;			
 		}
 		else
 		{
-			//we search for the first available slot after the current position
-			//if we cant find one like that, then we can't place it
-			int newCol <- -1;
-			int c <- 0;
-			loop while: c < length(availablePlaces) and availablePlaces[c] <= currPos
-			{
-				c <- c + 1;
-			}
-			
-			if(c < length(availablePlaces))
-			{
-				newCol <- availablePlaces[c];
-				do start_conversation (to: [succeedingQueen], protocol: 'fipa-request', performative: 'request', contents: ['place', int(newCol)]);
-			}
-			else
-			{
-				do cantPlaceNextQueen;
-			}
+				do start_conversation (to: [succeedingQueen], protocol: 'fipa-request', performative: 'request', contents: ['place', toStep]);
 		}
 	}
 	
@@ -236,7 +257,7 @@ species YasQueen skills: [moving, fipa]
 	 */
 	action updateBoardInfo(bool queenAdded <- true)
 	{
-		write 'called updateBoardInfo with queenAdded: ' + queenAdded;
+		/*write 'called updateBoardInfo with queenAdded: ' + queenAdded;
 		if(queenAdded)
 		{
 			if(column = -1)
@@ -260,13 +281,13 @@ species YasQueen skills: [moving, fipa]
 		}
 		
 		write "placedQueenPositions "  + placedQueenPositions;
-		write "availableCells: \n" + availableCells;
+		write "availableCells: \n" + availableCells;*/
 	}
 	
 	action calculateZeroesByQueenPosition(int c, int r)
 	{
 		//write 'calling calculateZeroesByQueenPosition with c: ' + c + ', r: ' + r;
-			loop i from: 0 to: N - 1
+			/*loop i from: 0 to: N - 1
 			{
 				//fill row with zeroes
 				availableCells[i, r] <- 0;
@@ -282,7 +303,7 @@ species YasQueen skills: [moving, fipa]
 				{
 					availableCells[c - i, r + i] <- 0;
 				}
-			}
+			}*/
 	}
 	
 
@@ -308,7 +329,6 @@ species YasQueen skills: [moving, fipa]
 
 experiment main type: gui
 {
-	
 	output
 	{
 		display map type: opengl
@@ -316,11 +336,33 @@ experiment main type: gui
         	species YasQueen;	
 			
 			graphics "blackLayer" {
-                loop i from: 0 to: N * N - 1
+				
+				loop j from: 0 to: N - 1
+				{
+					loop i from: 0 to: N - 1
+					{
+						if(mod(j, 2) = 0)
+						{
+							if(mod(i, 2) = 0)
+							{
+								draw square(tileSize) at: {tileSize / 2 + i * tileSize, tileSize / 2 + j * tileSize, -0.1} color: #gray;
+							}
+						}
+						if(mod(j, 2) = 1)
+						{
+							if(mod(i, 2) = 1)
+							{
+								draw square(tileSize) at: {tileSize / 2 + i * tileSize, tileSize / 2 + j * tileSize, -0.1} color: #gray;
+							}
+						} 
+					}
+				}
+				
+                /*loop i from: 0 to: N * N - 1
 				{
 					// The squares are drawn at -0.1 depth to make sure they're below everything else
 					draw square(tileSize) at:{tileSize / 2 + mod(floor(i / N), 2) * tileSize + tileSize * mod((i + i), N),tileSize / 2 + tileSize * floor((i / N)),-0.1} color:#gray;
-				}
+				}*/
             }
 		}
 	}
