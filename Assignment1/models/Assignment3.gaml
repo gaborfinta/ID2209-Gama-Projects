@@ -12,7 +12,7 @@ global
 	 */
 	// N is the number of Queens
 	// Same number also defines how many squares there should be for the floor
-	int N <- 16;
+	int N <- 8;
 	float tileSize <- 100 / (N);
 	
 	//matrix availableCells <- 1 as_matrix({N, N});
@@ -56,7 +56,6 @@ species YasQueen skills: [moving, fipa]
 		{
 			column <- 0;
 			placedQueens <+ column;
-			do updateBoardInfo;
 		}
 		do updateLocation;
 	}
@@ -71,18 +70,10 @@ species YasQueen skills: [moving, fipa]
 		{
 			preceedingQueen <- YasQueen[ownIndex-1];
 		}
-		else
-		{
-			//preceedingQueen <- YasQueen[length(YasQueen)-1];
-		}
 		// If this is the last agent, then set the first agent as succeeding
 		if(ownIndex != length(YasQueen)-1)
 		{
 			succeedingQueen <- YasQueen[ownIndex+1];
-		}
-		else
-		{
-			//succeedingQueen <- YasQueen[0];
 		}
 		
 		write name + " previous: " + preceedingQueen + " and succeeding: " + succeedingQueen;
@@ -110,7 +101,6 @@ species YasQueen skills: [moving, fipa]
 			needsToStep <- false;
 			column <- int(request.contents[1]);
 			placedQueens <+ column;
-			do updateBoardInfo;
 		}
 		else if(request.contents[0] = 'cancel')
 		{
@@ -122,7 +112,6 @@ species YasQueen skills: [moving, fipa]
 			}
 			write 'placedQueenPositions: ' + placedQueens;
 			column <- -1;
-			do updateBoardInfo(false);
 		}
 		else if(request.contents[0] = 'step me')
 		{
@@ -165,7 +154,6 @@ species YasQueen skills: [moving, fipa]
 			write 'Queen ' + ownIndex + ' asks preceeding one to step her';
 			int currCol <- column;
 			placedQueens[] >- row;
-			do updateBoardInfo(false);
 			do start_conversation (to: [preceedingQueen], protocol: 'fipa-request', performative: 'request', contents: ['step me', currCol]);	
 		}
 		else
@@ -173,7 +161,6 @@ species YasQueen skills: [moving, fipa]
 			placedQueens[] >- row;
 			column <- column + 1;
 			placedQueens <+ column;
-			do updateBoardInfo(false);
 		}
 	}
 	
@@ -196,6 +183,10 @@ species YasQueen skills: [moving, fipa]
 		}
 	}
 	
+	/*
+	 * A queen find an available column for the next queen. 
+	 * startColumn: index of it needs to be at least as high as this
+	 */
 	int findAvailableColumn(int startColumn <- 0)
 	{
 		bool foundPotentialColumn <- false;
@@ -207,8 +198,6 @@ species YasQueen skills: [moving, fipa]
 			loop while: !foundThreateningQueen and i < length(placedQueens)
 			{
 				//check for same column and diagonal
-				//write 'row - i = ' + row + ' ' + i + ' ' + (row - i);
-				//write 'potentialColumn - placedQueens[i] = ' + potentialColumn + ' ' + placedQueens[i] + ' ' + (potentialColumn - placedQueens[i]);
 				foundThreateningQueen <- placedQueens[i] = potentialColumn or abs(row + 1 - i) = abs(potentialColumn - placedQueens[i]);
 				i <- i + 1;
 			}
@@ -248,64 +237,6 @@ species YasQueen skills: [moving, fipa]
 				do start_conversation (to: [succeedingQueen], protocol: 'fipa-request', performative: 'request', contents: ['place', toStep]);
 		}
 	}
-	
-	/*
-	 * Update the avilableCells matrix with the newly placed queen.
-	 * This puts zeroes to the unavailable places.
-	 * If a queen is added, add new zeroes to the unavailable spaces
-	 * If a queen is removed, recaulculate the whole matrix
-	 */
-	action updateBoardInfo(bool queenAdded <- true)
-	{
-		/*write 'called updateBoardInfo with queenAdded: ' + queenAdded;
-		if(queenAdded)
-		{
-			if(column = -1)
-			{
-				return;
-			}
-			do calculateZeroesByQueenPosition(column, row);
-		}
-		else
-		{
-			availableCells <- 1 as_matrix({N, N});
-			loop queenPos over: placedQueenPositions
-			{
-				do calculateZeroesByQueenPosition(queenPos.key, queenPos.value);
-			}
-		}
-		
-		loop queenPos over: placedQueenPositions
-		{
-			availableCells[queenPos.key, queenPos.value] <- 9;
-		}
-		
-		write "placedQueenPositions "  + placedQueenPositions;
-		write "availableCells: \n" + availableCells;*/
-	}
-	
-	action calculateZeroesByQueenPosition(int c, int r)
-	{
-		//write 'calling calculateZeroesByQueenPosition with c: ' + c + ', r: ' + r;
-			/*loop i from: 0 to: N - 1
-			{
-				//fill row with zeroes
-				availableCells[i, r] <- 0;
-				//fill column with zeroes
-				availableCells[c, i] <- 0;
-				//fill left to right diagonal with zeroes
-				if(c + i < N and r + i < N)
-				{
-					availableCells[c + i, r + i] <- 0;
-				}
-				//fill right to left diagonal with zeroes
-				if(c - i >= 0 and r + i < N)
-				{
-					availableCells[c - i, r + i] <- 0;
-				}
-			}*/
-	}
-	
 
 	aspect default
 	{
@@ -319,12 +250,6 @@ species YasQueen skills: [moving, fipa]
 			draw line([{0,0},{0,100}]) at: location + {0,0,-0.05} color: myColor;
 		}
 	}
-	
-	// while the queen has a target, move towards target
-	/*reflex goToLocation when: targetLocation != nil
-	{
-		do goto target: targetLocation speed: 3.0;
-	}*/	
 }
 
 experiment main type: gui
@@ -357,12 +282,6 @@ experiment main type: gui
 						} 
 					}
 				}
-				
-                /*loop i from: 0 to: N * N - 1
-				{
-					// The squares are drawn at -0.1 depth to make sure they're below everything else
-					draw square(tileSize) at:{tileSize / 2 + mod(floor(i / N), 2) * tileSize + tileSize * mod((i + i), N),tileSize / 2 + tileSize * floor((i / N)),-0.1} color:#gray;
-				}*/
             }
 		}
 	}
