@@ -11,7 +11,7 @@ global
 	 * Guest configs
 	 */
 	int guestNumber <- rnd(20)+20;
-	//int guestNumber <- 1;
+	//int guestNumber <- 5;
 	float guestSpeed <- 0.5;
 	
 	// the rate at which guests grow hungry / thirsty
@@ -232,6 +232,9 @@ species Guest skills:[moving, fipa]
 	list<float> stageUtilities <- [];
 	ShowMaster showMaster <- one_of(ShowMaster);
 	Stage targetStage <- nil;
+	float highestUtility <- 0.0;
+	int highestUtilityIndex;
+	bool unsatisfied <- false;
 	
 	aspect default
 	{
@@ -400,21 +403,6 @@ species Guest skills:[moving, fipa]
 						write preferenceString + myself.stageUtilities[i];
 			 		}
 			 	}
-			 	
-		 		// also look at the crowd size
-		 		/*
-			 	loop i from: 0 to: length(stages)-1
-			 	{
-			 		Stage stg <- stages[i];
-			 		// if the crowd is bigger than the preferred crowd size, multiply utility by bias
-		 			if(length(stg.crowdAtStage) > myself.preferenceStageCrowdSize)
-		 			{
-		 				write myself.name + " thinks crowd at " + stg.name + " is too big - utilty is " + myself.stageUtilities[i];
-		 				myself.stageUtilities[i] <- myself.stageUtilities[i] * myself.preferenceStageCrowdSizeBias;
-		 			}
-		 		}
-		 		*/
-		 		
 		 	}
 		 	// If stages is empty, remove utilities from guest
 		 	else
@@ -424,23 +412,6 @@ species Guest skills:[moving, fipa]
 
 		 }
 	}
-	
-	/*
-	 * Guests will pick a stage when shows are running and when they have calculated utilities
-	 */
-/*	 reflex pickStage when: !empty(stageUtilities) and !empty(showMaster.stages) and length(stageUtilities) = length(showMaster.stages) and targetStage = nil
-	 {
-	 	float highestUtility <- 0.0;
-	 	loop i from: 0 to: length(stageUtilities)-1
-	 	{
-	 		if(stageUtilities[i] >= highestUtility)
-	 		{
-	 			highestUtility <- stageUtilities[i];
-	 			targetStage <- showMaster.stages[i];
-	 		}
-	 	}
-	 	write name + " has picked targetStage " + targetStage;
-	 }*/
 	
 	/* 
 	 * Reduce thirst and hunger with a random value between 0 and 0.5
@@ -558,7 +529,7 @@ species Guest skills:[moving, fipa]
 	 */
 	reflex gotoStageOrBeIdle when: target = nil and isConscious
 	{
-		if(dead(targetStage))
+		if(targetStage != nil and dead(targetStage))
 		{
 			targetStage <- nil;
 		}
@@ -1038,6 +1009,7 @@ species ShowMaster
 			myself.stages <+ self;
 			myColor <- stageColors[counter];
 			genesisString <- genesisString + name + " (" + myColor + ") with " + stageGenre + " ";
+			myIndex <- counter;
 			counter <- counter + 1;
 		}
 		stagesCreated <- true;
@@ -1056,6 +1028,12 @@ species ShowMaster
 		runShows <- false;
 		endTime <- time;
 		write name + " knows the stages have finished at " + endTime;
+		
+		// reset unsatisfied for all guests
+		ask Guest
+		{
+			unsatisfied <- false;
+		}
 	}
 	
 	/*
@@ -1063,23 +1041,96 @@ species ShowMaster
 	 */
 	 reflex coordinateGuests when: runShows and stagesCreated
 	 {
+//	 	float highestUtility <- 0.0;
+	 	/*
+	 	 * Assign each guest their highest utility stage
+	 	 * do not assign unsatisfied guests a new target, they've been through this
+	 	 */
 	 	ask Guest
 	 	{
-	 		if(!empty(stageUtilities) and target = nil)
+	 		if(!empty(stageUtilities) and length(myself.stages) = length(stageUtilities) and targetStage = nil and !unsatisfied)
 	 		{
-		 		float highestUtility <- 0.0;
 			 	loop i from: 0 to: length(stageUtilities)-1
 			 	{
-			 		if(stageUtilities[i] >= highestUtility)
+			 		if(stageUtilities[i] > highestUtility)
 			 		{
 			 			highestUtility <- stageUtilities[i];
-			 			target <- myself.stages[i];
-			 			write name + " heading to " + target;
+						highestUtilityIndex <- i;
+//			 			targetStage <- myself.stages[i];
+//			 			targetStage.crowdAtStage <+ self;
 			 		}
-			 	}	
+			 	}
+	 			targetStage <- myself.stages[highestUtilityIndex];
+	 			myself.stages[highestUtilityIndex].crowdAtStage <+ self;
+	 			write myself.name + " has assigned " + name + " targetStage " + targetStage;
 	 		}
 	 	}
-	 }
+	 	/*
+	 	 * Check if any guests have exceeded their maxGuests
+	 	 * otherwise, assign this guest the next highest utility from their current choice
+	 	 * this will probably lead to some agents circulating in search of a smaller crowd
+	 	 * if no stages are good, set unsatisfied true and leave the guest wandering
+	 	 * 
+	 	 */
+		ask Guest
+	 	{
+	 	 	if(targetStage != nil and !dead(targetStage) and length(targetStage.crowdAtStage) > preferenceStageCrowdSize)
+	 	 	{
+				write name + " crowd at " + targetStage + ": " + length(targetStage.crowdAtStage) + " is too big, prefer " + preferenceStageCrowdSize;
+ 				// remove guest from any stage it is currently assigned to
+ 				targetStage.crowdAtStage >- self;
+// 				targetStage <- nil;
+ 				target <- nil;
+ 				
+ 				//get second highest utility
+ 				float secondHighestUtility <- 0.0;
+ 				highestUtilityIndex <- -1;
+			 	loop i from: 0 to: length(stageUtilities)-1
+			 	{
+			 		if(stageUtilities[i] > secondHighestUtility and stageUtilities[i] < highestUtility)
+			 		{
+			 			secondHighestUtility <- stageUtilities[i];
+			 			highestUtilityIndex <- i;
+			 		}
+				}
+				// If for some reason the highestUtilityIndex points to the current target..
+				if(highestUtilityIndex > -1 and myself.stages[highestUtilityIndex] != targetStage)
+				{
+					targetStage <- myself.stages[highestUtilityIndex];
+					write name + " changes target to " + targetStage; 	
+				}
+				if(highestUtilityIndex = -1)
+				{
+					write name + " the crowd is too big everywhere!";
+					unsatisfied <- true;
+					target <- nil;
+					targetStage <- nil;
+					highestUtility <- 0.0;
+				}
+/*				// This means none of the other stages were satisfying
+				if(secondHighestUtility = 0.0)
+				{
+//					write name + " crowd in all the shows is too big!";
+					//unsatisfied <- true;
+					target <- nil;
+					targetStage <- nil;
+					highestUtility <- 0.0;
+				}
+				else
+				{
+		 			// remove from current stage
+		 			myself.stages[highestUtilityIndex].crowdAtStage >- self; 
+		 			// change to new stage
+		 			targetStage <- myself.stages[highestUtilityIndex];
+		 			target <- targetStage;
+		 			// add to list on new stage
+		 			myself.stages[highestUtilityIndex].crowdAtStage <+ self;
+					highestUtility <- secondHighestUtility;
+					write name + " changes target to " + targetStage;
+				}*/
+			}
+		}
+	}
 }
 
 /*
@@ -1362,6 +1413,9 @@ species Stage parent: Building
 	
 	// Stages keep a record of their crowd sizes
 	list<Guest> crowdAtStage <-[];
+	// Total utility of all guests at stage
+//	float totalUtility <- 0.0;
+	int myIndex;
 	
 	aspect default
 	{
@@ -1388,24 +1442,6 @@ species Stage parent: Building
 			mySize <- mySize - 1;
 		}
 	}*/
-	
-	/*
-	 * The stage includes all the guests in the vicinity and doesn't care if they are actually following the show
-	 * i.e. just a large crowd of passerbys could influence a guest's choice of stage
-	 */
-	reflex calculateCrowdSize
-	{
-		// First empty the list
-		crowdAtStage <- [];
-		// Include any Guest at_distance 13 to crowd list if not already included on the list
-		ask Guest at_distance 13
-		{
-			if(!contains(myself.crowdAtStage, self))
-			{
-				myself.crowdAtStage <+ self;
-			}
-		}
-	}
 	
 	/*
 	 * When the time is greater than the start time + duration, the show has run for long enough and will end
