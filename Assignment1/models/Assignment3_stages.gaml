@@ -16,7 +16,7 @@ global
 	
 	// the rate at which guests grow hungry / thirsty
 	// every reflex we reduce hunger / thirst by rnd(0,rate) * 0.1
-	int hungerRate <- 1;
+	int hungerRate <- 5;
 	
 	/*
 	 * Building configs
@@ -439,7 +439,7 @@ species Guest skills:[moving, fipa]
 	 			targetStage <- showMaster.stages[i];
 	 		}
 	 	}
-	 	write name + " has picked targetStage " + targetStage;
+	 	write name + " has picked targetStage " + targetStage + " (" + targetStage.myColor + ")";
 	 }
 	
 	/* 

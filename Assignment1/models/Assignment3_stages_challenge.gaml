@@ -10,8 +10,8 @@ global
 	/*
 	 * Guest configs
 	 */
-	int guestNumber <- rnd(20)+20;
-	//int guestNumber <- 5;
+	//int guestNumber <- rnd(20)+20;
+	int guestNumber <- 10;
 	float guestSpeed <- 0.5;
 	
 	// the rate at which guests grow hungry / thirsty
@@ -94,6 +94,7 @@ global
 									];
 	bool runShows <- false;
 	list<rgb> stageColors <- [#lime, #pink, #lightblue, #purple];
+	float globalUtility <- 0.0;
 	
 	/*
 	 * Other agent configs
@@ -227,12 +228,14 @@ species Guest skills:[moving, fipa]
 	string preferenceStageGenre <- genresAvailable[rnd(length(genresAvailable) - 1)];
 	float preferenceStageGenreBias <- 1.0 + rnd(0.0,10.0);
 	// The max size of the crowd the guest is willing to tolerate
+	// If crowd size exceeds crowdSize, multiply by bias
 	int preferenceStageCrowdSize <- rnd(1,guestNumber);
-//	float preferenceStageCrowdSizeBias <- 1.0 + rnd(0.0,1.0);
+	float preferenceStageCrowdSizeBias <- rnd(0.0,1.0);
 	list<float> stageUtilities <- [];
 	ShowMaster showMaster <- one_of(ShowMaster);
 	Stage targetStage <- nil;
 	float highestUtility <- 0.0;
+	float currentUtility <- 0.0;
 	int highestUtilityIndex;
 	bool unsatisfied <- false;
 	
@@ -371,17 +374,19 @@ species Guest skills:[moving, fipa]
 		 * Go through the list and calculate and save utility for each stage, then pick the highest
 		 * 
 		 * only calculate the general utility once for each stage, crowd utility is calculated every cycle
+		 * 
+		 * Edit: keep calculating the utility
 		 */
 		 ask showMaster
 		 {
-		 	// If stages is empty, remove utilities from guest
+		 	// If stages is empty, do nothing and remove utilities from guest
 		 	if(!empty(stages))
 		 	{
 			 	loop i from: 0 to: length(stages)-1
 			 	{
 			 		Stage stg <- stages[i];
-			 		if(length(myself.stageUtilities) < length(stages))
-			 		{
+//			 		if(length(myself.stageUtilities) < length(stages))
+//			 		{
 			 			// Calculate utility by taking the stage's vars and multiplying them by the corresponding preference
 						float utility <- stg.stageLights * myself.preferenceStageLights +
 										stg.stageMusic * myself.preferenceStageMusic +
@@ -389,19 +394,19 @@ species Guest skills:[moving, fipa]
 										stg.stageShow * myself.preferenceStageFashionability +
 										stg.stageShow * myself.preferenceStageDanceability;
 										
-			 			string preferenceString <- myself.name + " has calculated utility for " + stg.name + ": ";
+//			 			string preferenceString <- myself.name + " has calculated utility for " + stg.name + ": ";
 						
 						// if the stage's genre does not match the Guest's preference, multiply by bias
 						if(stg.stageGenre = myself.preferenceStageGenre)
 						{
 							utility <- utility * myself.preferenceStageGenreBias;
-							preferenceString <- preferenceString + " (preferred genre) ";
+//							preferenceString <- preferenceString + " (preferred genre) ";
 						}
 						// Add stage / utility pair to stageUtilities
 						// Couldn't get pairs working, so we'll just keep utilities in a list of floats
 						myself.stageUtilities <+ utility;
-						write preferenceString + myself.stageUtilities[i];
-			 		}
+//						write preferenceString + myself.stageUtilities[i];
+//			 		}
 			 	}
 		 	}
 		 	// If stages is empty, remove utilities from guest
@@ -412,6 +417,24 @@ species Guest skills:[moving, fipa]
 
 		 }
 	}
+	
+	/*
+	 * Guests will pick a stage when shows are running and when they have calculated utilities
+	 */
+	 reflex pickStage when: !empty(stageUtilities) and !empty(showMaster.stages) and length(stageUtilities) = length(showMaster.stages) and targetStage = nil
+	 {
+	 	loop i from: 0 to: length(stageUtilities)-1
+	 	{
+	 		if(stageUtilities[i] >= highestUtility)
+	 		{
+	 			highestUtility <- stageUtilities[i];
+	 			targetStage <- showMaster.stages[i];
+	 		}
+	 	}
+	 	targetStage.crowdAtStage <+ self;
+	 	currentUtility <- highestUtility;
+	 	write name + " has picked targetStage " + targetStage + " (" + targetStage.myColor + ")";
+	 }
 	
 	/* 
 	 * Reduce thirst and hunger with a random value between 0 and 0.5
@@ -1041,11 +1064,71 @@ species ShowMaster
 	 */
 	 reflex coordinateGuests when: runShows and stagesCreated
 	 {
+	 	// reset globalUtility, we'll recalculate it now anyway
+	 	globalUtility <- 0.0;
+	 	// Ask guests that have picked a targetStage (means they have calculated utility)
+	 	// if the crowd at the stage exceeds crowdSize
+		//if yes, are there stages where the crowd is smaller than maxCrowd?
+		//if yes, does changing increase global utility?s
+		//if yes, assign new stage
+		//ask Guest
+		loop guest over: Guest
+		{
+			if(guest.targetStage != nil)
+			{
+				// if the show has expired
+				// TODO: this seems to cause bugs in the long run - maybe make all shows expire at the same time?
+				if(dead(guest.targetStage))
+				{
+					guest.targetStage <- nil;
+					guest.target <- nil;
+				}
+				else if(length(guest.targetStage.crowdAtStage) > guest.preferenceStageCrowdSize)
+				{
+					write guest.name + " crowd at " + guest.targetStage + " is too big (" + length(guest.targetStage.crowdAtStage) + " vs. " + guest.preferenceStageCrowdSize + ") at " + guest.targetStage + " current utility " + guest.currentUtility * guest.preferenceStageCrowdSizeBias;
+					loop i from: 0 to: length(stages)-1
+					{
+						Stage stg <- stages[i];
+						// is there a stage with a smaller crowd than preferenceCrowdSize (+1 because this guest wants to join)
+						// also is the utility of changing there greater than current utility * crowdSizeBias
+						if(length(stg.crowdAtStage) + 1 < guest.preferenceStageCrowdSize)
+						{
+							if(guest.stageUtilities[i] > guest.currentUtility * guest.preferenceStageCrowdSizeBias)
+							{
+								guest.targetStage.crowdAtStage >- self;
+								guest.targetStage <- stg;
+								// cancel the guest's current target (probably stage)
+								guest.target <- nil;
+								write guest.name + " changes targetStage to " + guest.targetStage + " new utility: " + guest.stageUtilities[i];
+								break;
+							}
+							// If changing the stage would not increase global utility, just stick with this one
+							else
+							{
+//								guest.currentUtility <- guest.currentUtility * guest.preferenceStageCrowdSizeBias;
+								guest.currentUtility <- guest.stageUtilities[index_of(stages,guest.targetStage)] * guest.preferenceStageCrowdSizeBias;
+								write guest.name + " currentUtility: " + guest.currentUtility + " is best available";
+							}
+						}
+					}
+				}
+				else
+				{
+					// If the guest is satisfied right now, just add their utility to global utility
+					globalUtility <- globalUtility + guest.currentUtility;
+				}
+			}
+		}
+		
+	 	write name + " calculated global utility: " + globalUtility;
+	 	
+	 	// OLD STUFF BELOW HERE
+/*
 //	 	float highestUtility <- 0.0;
 	 	/*
 	 	 * Assign each guest their highest utility stage
 	 	 * do not assign unsatisfied guests a new target, they've been through this
-	 	 */
+	 	 *
 	 	ask Guest
 	 	{
 	 		if(!empty(stageUtilities) and length(myself.stages) = length(stageUtilities) and targetStage = nil and !unsatisfied)
@@ -1071,7 +1154,7 @@ species ShowMaster
 	 	 * this will probably lead to some agents circulating in search of a smaller crowd
 	 	 * if no stages are good, set unsatisfied true and leave the guest wandering
 	 	 * 
-	 	 */
+	 	 *
 		ask Guest
 	 	{
 	 	 	if(targetStage != nil and !dead(targetStage) and length(targetStage.crowdAtStage) > preferenceStageCrowdSize)
@@ -1094,12 +1177,15 @@ species ShowMaster
 			 		}
 				}
 				// If for some reason the highestUtilityIndex points to the current target..
-				if(highestUtilityIndex > -1 and myself.stages[highestUtilityIndex] != targetStage)
+				if(highestUtilityIndex != -1)
 				{
-					targetStage <- myself.stages[highestUtilityIndex];
-					write name + " changes target to " + targetStage; 	
+					if(myself.stages[highestUtilityIndex] != targetStage)
+					{
+						targetStage <- myself.stages[highestUtilityIndex];
+						write name + " changes target to " + targetStage;	
+					}
 				}
-				if(highestUtilityIndex = -1)
+				else if(highestUtilityIndex = -1)
 				{
 					write name + " the crowd is too big everywhere!";
 					unsatisfied <- true;
@@ -1127,9 +1213,9 @@ species ShowMaster
 		 			myself.stages[highestUtilityIndex].crowdAtStage <+ self;
 					highestUtility <- secondHighestUtility;
 					write name + " changes target to " + targetStage;
-				}*/
+				}
 			}
-		}
+		} */
 	}
 }
 
