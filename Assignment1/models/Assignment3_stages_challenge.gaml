@@ -429,11 +429,11 @@ species Guest skills:[moving, fipa]
 	 		{
 	 			highestUtility <- stageUtilities[i];
 	 			targetStage <- showMaster.stages[i];
+	 			targetStage.crowdAtStage <+ self;
+	 			currentUtility <- highestUtility;
+	 			write name + " has picked targetStage " + targetStage + " (" + targetStage.myColor + ")";
 	 		}
 	 	}
-	 	targetStage.crowdAtStage <+ self;
-	 	currentUtility <- highestUtility;
-	 	write name + " has picked targetStage " + targetStage + " (" + targetStage.myColor + ")";
 	 }
 	
 	/* 
@@ -1062,7 +1062,7 @@ species ShowMaster
 	/*
 	 * The ShowMaster will coordinate guests around to the stages 
 	 */
-	 reflex coordinateGuests when: runShows and stagesCreated
+	 reflex coordinateGuests when: runShows and stagesCreated// and length(stageColors) = length(stages)
 	 {
 	 	// reset globalUtility, we'll recalculate it now anyway
 	 	globalUtility <- 0.0;
@@ -1119,8 +1119,11 @@ species ShowMaster
 				}
 			}
 		}
-		
-	 	write name + " calculated global utility: " + globalUtility;
+		if(globalUtility != 0.0)
+		{
+	 		write name + " calculated global utility: " + globalUtility;
+	 		
+	 	}
 	 	
 	 	// OLD STUFF BELOW HERE
 /*
