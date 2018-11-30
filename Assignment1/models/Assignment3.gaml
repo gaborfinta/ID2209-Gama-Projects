@@ -12,7 +12,7 @@ global
 	 */
 	// N is the number of Queens
 	// Same number also defines how many squares there should be for the floor
-	int N <- 8;
+	int N <- 6;
 	float tileSize <- 100 / (N);
 	
 	//matrix availableCells <- 1 as_matrix({N, N});

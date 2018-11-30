@@ -16,20 +16,23 @@ global
 	
 	// the rate at which guests grow hungry / thirsty
 	// every reflex we reduce hunger / thirst by rnd(0,rate) * 0.1
-	int hungerRate <- 1;
+	//now if this is -1, guests will use their personal random hunger rate
+	// if it is not -1, they use this instead as a global hungerrate
+	int globalHungerRate <- -1;
 	
 	/*
 	 * Building configs
 	 */
 	int foodStoreNumber <- rnd(2,3);
 	int drinkStoreNumber <- rnd(2,3);
-	int infoCenterDetectionDistance <- 0;
+	int approximateDetectionDistance <- 3;
 	point infoCenterLocation <- {50,50};
 	
 	/*
 	 * Auction configs
 	 */
 	point showMasterLocation <- {-10,50};
+	//also determines the number of auctions
 	list<string> itemsAvailable <- ["branded backpacks","signed shirts","heavenly hats", "posh pants"];
 	list<string> auctionTypes <- ["Dutch", "English", "Sealed"];
 	int auctionerWaitTime <- 10;
@@ -93,6 +96,7 @@ global
 									,"geomungo sanjo"
 									];
 	bool runShows <- false;
+	//also determines the number of stages
 	list<rgb> stageColors <- [#lime, #pink, #lightblue, #purple];
 	float globalUtility <- 0.0;
 	
@@ -102,8 +106,11 @@ global
 	// Robotcop is a bit faster than guests, also used by ambulances
 	float roboCopSpeed <- guestSpeed * 1.5;
 	// The number of ambulances is propotionate to the amount of guests
-	int ambulanceNumber <- round(guestNumber / 4);
+	int ambulanceNumber <- max([1, round(guestNumber / 4)]);
 	
+	//Everything happens only once per day
+	int currDay <- 0;
+	int cyclesPerDay <- 2880;
 	init
 	{
 		/*
@@ -163,6 +170,10 @@ global
 			
 		}
 	}
+	reflex currDay when: mod(time, cyclesPerDay) = 0
+	{
+		currDay <- currDay + 1;
+	}
 	
 }
 
@@ -190,6 +201,7 @@ species Guest skills:[moving, fipa]
 	// Default hunger vars
 	float thirst <- rnd(50)+50.0;
 	float hunger <- rnd(50)+50.0;
+	int hungerRate <- rnd(1, 3);
 	bool isConscious <- true;
 	
 	// Default color of guests
@@ -212,8 +224,8 @@ species Guest skills:[moving, fipa]
 	bool isBad <- flip(0.2);
 	
 	// Each guest prefers a random item out of the items they do not have
-		string preferredItem <- itemsAvailable[rnd(length(itemsAvailable) - 1)];
-	
+	//it is set in init
+	string preferredItem <- [];
 	// A list of all the items the guest does not have
 	list<string> wishList <- ["branded backpacks","signed shirts","heavenly hats", "posh pants"];
 	
@@ -269,6 +281,14 @@ species Guest skills:[moving, fipa]
 		}
 	}
 	
+	init
+	{
+		if(length(itemsAvailable) > 0)
+		{
+			preferredItem <- itemsAvailable[rnd(length(itemsAvailable) - 1)];	
+		}
+	}
+		
 	/*
 	 * This might come up with stages, but not otherwise
 	 */
@@ -278,66 +298,6 @@ species Guest skills:[moving, fipa]
 		{
 			target <- nil;
 			targetStage <- nil;
-		}
-	}
-	
-	/*
-	 * common reflex for reaching target
-	 * could be stage or store
-	 */
-	 reflex targetReached when: target != nil and location distance_to(target.location) <= infoCenterDetectionDistance
-	 {
-	 	target <- nil;
-	 }
-	
-	/*
-	 * If the guest's wish list does not contain their current preference,
-	 * it means they've acquired that item
-	 * and that they should pick a new preference from the remaining items
-	 */
-	reflex getNewPreference when: !empty(wishList) and !contains(wishList, preferredItem)
-	{
-		preferredItem <- wishList[rnd(length(wishList) - 1)];
-	}
-	
-	/*
-	 * When the guest has a targetAuction, it is considered participating in that auction
-	 * Hunger and thirst are disabled for convenience's sake
-	 * Unconscious guests will wake up, capitalism never sleeps
-	 * 
-	 * A target auction is an auction selling the types of items the guest is interested in
-	 * TODO: Document
-	 */
-	reflex inAuction when: targetAuction != nil
-	{
-		hunger <- 100.0;
-		thirst <- 100.0;
-		isConscious <- true;
-		color <- #red;
-		
-		// Free any ambulance from getting this guest
-		ask Ambulance
-		{
-			if(targetGuest = myself)
-			{
-				targetGuest <- nil;
-				deliveringGuest <- false;
-			}
-		}
-		// Also remove this guest from the hospital's lists
-		ask Hospital
-		{
-			unconsciousGuests >- myself;
-			underTreatment >- myself;
-		}
-		
-		if(location distance_to(targetAuction.location) > 9)
-		{
-			target <- targetAuction;
-		}
-		else
-		{
-			target <- nil;
 		}
 	}
 	
@@ -423,7 +383,7 @@ species Guest skills:[moving, fipa]
 	 */
 	 reflex pickStage when: !empty(stageUtilities) and !empty(showMaster.stages) and length(stageUtilities) = length(showMaster.stages) and targetStage = nil
 	 {
-	 	loop i from: 0 to: length(stageUtilities)-1
+	 	loop i from: 0 to: length(stageUtilities) - 1
 	 	{
 	 		if(stageUtilities[i] >= highestUtility)
 	 		{
@@ -431,8 +391,8 @@ species Guest skills:[moving, fipa]
 	 			targetStage <- showMaster.stages[i];
 	 			targetStage.crowdAtStage <+ self;
 	 			currentUtility <- highestUtility;
-	 			write name + " has picked targetStage " + targetStage + " (" + targetStage.myColor + ")";
 	 		}
+	 		//write name + " has picked targetStage " + targetStage + " (" + targetStage.myColor + ") " + targetStage.location;
 	 	}
 	 }
 	
@@ -496,13 +456,13 @@ species Guest skills:[moving, fipa]
 				{
 					// If user is hungry, ask guestBrain for food stores,
 					// in the case of draw and otherwise ask for drink stores
-					if(thirst > hunger and guestBrain[i].sellsFood = true)
+					if(thirst > hunger and FoodStore = species(guestBrain[i]))
 					{
 						target <- guestBrain[i];
 						destinationMessage <- destinationMessage + " (brain used)";
 						break;
 					}
-					else if(thirst <= hunger and guestBrain[i].sellsDrink = true)
+					else if(thirst <= hunger and DrinkStore = species(guestBrain[i]))
 					{
 						target <- guestBrain[i];
 						destinationMessage <- destinationMessage + " (brain used)";
@@ -528,7 +488,6 @@ species Guest skills:[moving, fipa]
 	 */
 	reflex thenPerish when: (thirst <= 0 or hunger <= 0) and isConscious
 	{
-		
 		string perishMessage <- name + " fainted";
 		
 		if(thirst <= 0)
@@ -556,24 +515,12 @@ species Guest skills:[moving, fipa]
 		{
 			targetStage <- nil;
 		}
-		if(targetStage != nil and location distance_to(targetStage) > 13)
+		if(targetStage != nil and location distance_to(targetStage) > approximateDetectionDistance)
 		{
 			target <- targetStage;
 		}
-		else
-		{
-			do wander;	
-		}
 	}
 
-	/* 
-	 * Agent's default behavior when target not set and they are conscious
-	 */
-//	reflex beIdle when: target = nil and isConscious
-//	{
-//		do wander;
-//	}
-	
 	/* 
 	 * When agent has target, move towards target
 	 * note: unconscious guests can still move, just to enable them moving to the hospital
@@ -581,6 +528,99 @@ species Guest skills:[moving, fipa]
 	reflex moveToTarget when: target != nil
 	{
 		do goto target:target.location speed: guestSpeed;
+	}
+	
+	/*
+	 * Reached target exactly with 0 distance
+	 * 
+	 * When the agent reaches a building, it asks what does the store replenish
+	 * Guests are foxy, opportunistic beasts and will attempt to refill their parameters at every destination
+	 * Yes, guests will even try to eat at the info center
+	 * Such ravenous guests
+	 */
+	reflex reachedTargetExactly when: target != nil and location distance_to(target.location) = 0
+	{
+		if(Store.subspecies contains species(target))
+		{
+			do foodDrinkStoreReached;
+		}
+	}
+	
+	/*
+	 * Reached the area around the target
+	 */
+	reflex checkForTargetReachedApproximately when: target != nil and location distance_to(target.location) <= approximateDetectionDistance
+	{
+		if(target = one_of(InfoCenter))
+		{
+			do infoCenterReached;
+		}
+		else if(Stage = species(target))
+		{
+			do stageReached;
+		}
+	}
+	
+	/*
+	 * TODO: Document
+	 */
+	reflex listen_messages when: (!empty(cfps))
+	{
+		message requestFromInitiator <- (cfps at 0);
+		if(Auctioner.population contains requestFromInitiator.sender)
+		{
+			do processAuctionCFPSMessage(requestFromInitiator);
+		}
+	}
+	
+	/*
+	 * In Dutch auction, the auctioner proposes and the participant can accept or reject it, based on the price it would pay for it.
+	 */
+	reflex reply_messages when: (!empty(proposes))
+	{
+		message requestFromInitiator <- (proposes at 0);
+		if(Auctioner.population contains requestFromInitiator.sender)
+		{
+			do processAuctionProposeMessage(requestFromInitiator);
+		}
+	}
+	
+	reflex wanderRandomly when: target = nil
+	{
+		do wander;
+	}
+	
+	//Guest actions begin
+	
+	/*
+	 * If the guest's wish list does not contain their current preference,
+	 * it means they've acquired that item
+	 * and that they should pick a new preference from the remaining items
+	 */
+	action pickNewPreferredItem
+	{
+		if(!empty(wishList) and !contains(wishList, preferredItem))
+		{
+			preferredItem <- wishList[rnd(length(wishList) - 1)];
+		}
+	}
+	
+	action foodDrinkStoreReached
+	{
+		string replenishString <- name;	
+		if(FoodStore = species(target))
+		{
+			hunger <- 100.0;
+			replenishString <- replenishString + " ate food at " + target.name;
+		}
+		else if(DrinkStore = species(target))
+		{
+			thirst <- 100.0;
+			replenishString <- replenishString + " had a drink at " + target.name;
+		}
+		
+		//write replenishString;
+		target <- nil;
 	}
 	
 	/* 
@@ -594,19 +634,20 @@ species Guest skills:[moving, fipa]
 	 * If the guest's brain has space, it will add the store's information to its brain
 	 * This could be the same store it already knows, but the guests are not very smart
 	 */
-	reflex infoCenterReached when: target != nil and target.location = infoCenterLocation and location distance_to(target.location) <= infoCenterDetectionDistance
+	action infoCenterReached
 	{
-		string destinationString <- name  + " getting "; 
-		ask InfoCenter at_distance infoCenterDetectionDistance
+		string destinationString <- name  + " on its way for "; 
+		target <- nil;
+		ask InfoCenter at_distance 0
 		{
 			if(myself.thirst <= myself.hunger)
 			{
-				myself.target <- drinkStoreLocs[rnd(length(drinkStoreLocs)-1)];
+				myself.target <- drinkStoreLocs[rnd(length(drinkStoreLocs) - 1)];
 				destinationString <- destinationString + "drink at ";
 			}
 			else
 			{
-				myself.target <- foodStoreLocs[rnd(length(foodStoreLocs)-1)];
+				myself.target <- foodStoreLocs[rnd(length(foodStoreLocs) - 1)];
 				destinationString <- destinationString + "food at ";
 			}
 			
@@ -620,40 +661,8 @@ species Guest skills:[moving, fipa]
 		}
 	}
 	
-	/*
-	 * When the agent reaches a building, it asks what does the store replenish
-	 * Guests are foxy, opportunistic beasts and will attempt to refill their parameters at every destination
-	 * Yes, guests will even try to eat at the info center
-	 * Such ravenous guests
-	 */
-	reflex isThisAStore when: target != nil and location distance_to(target.location) < 2
+	action processAuctionCFPSMessage(message requestFromInitiator)
 	{
-		ask target
-		{
-			string replenishString <- myself.name;	
-			if(sellsFood = true)
-			{
-				myself.hunger <- 100.0;
-				replenishString <- replenishString + " ate food at " + name;
-			}
-			else if(sellsDrink = true)
-			{
-				myself.thirst <- 100.0;
-				replenishString <- replenishString + " had a drink at " + name;
-			}
-			
-			//write replenishString;
-		}
-		
-		target <- nil;
-	}
-	
-	/*
-	 * TODO: Document
-	 */
-	reflex listen_messages when: (!empty(cfps))
-	{
-		message requestFromInitiator <- (cfps at 0);
 		// the request's format is as follows: [String, auctionType, soldItem, ...]
 		if(requestFromInitiator.contents[0] = 'Start' and requestFromInitiator.contents[1] = preferredItem)
 		{
@@ -666,20 +675,19 @@ species Guest skills:[moving, fipa]
 			// TODO: handle this better
 			// Essentially add the guest to the interestedGuests list
 			targetAuction.interestedGuests <+ self;
+			do joinAuction;
 		}
 		//End of auction
 		else if(requestFromInitiator.contents[0] = 'Stop')
 		{
 //			write name + ' knows the auction is over.';
-			targetAuction <- nil;
-			target <- nil;
+			do postAuctionSettings;
 		}
 		//Time to send bid for sealed bidding
 		else if(requestFromInitiator.contents[0] = 'Bid For Sealed')
 		{
 			do start_conversation (to: requestFromInitiator.sender, protocol: 'fipa-propose', performative: 'propose', contents: ['This is my offer', guestMaxAcceptedPrice]);
-			targetAuction <- nil;
-			target <- nil;
+			do postAuctionSettings;
 		}
 		//next round for english bidding
 		else if(requestFromInitiator.contents[0] = 'Bid for English')
@@ -701,14 +709,14 @@ species Guest skills:[moving, fipa]
 			{
 //				write name + ": Too much for me, I'm out guyzz";
 				do reject_proposal (message: requestFromInitiator, contents: ["Too much for me, I'm out guyzz"]);
-				targetAuction <- nil;
-				target <- nil;
+				do postAuctionSettings;
 			}
 		}
 		else if(requestFromInitiator.contents[0] = 'Winner')
 		{
 			write name + ' won the auction for ' + preferredItem;
 			wishList >- preferredItem;
+			do pickNewPreferredItem;
 			if(preferredItem = "posh pants")
 			{
 				write "Go Pants !!!";
@@ -717,12 +725,48 @@ species Guest skills:[moving, fipa]
 	}
 	
 	/*
-	 * In Dutch auction, the auctioner proposes and the participant can accept or reject it, based on the price it would pay for it.
+	 * When the guest has a targetAuction, it is considered participating in that auction
+	 * Hunger and thirst are disabled for convenience's sake
+	 * Unconscious guests will wake up, capitalism never sleeps
+	 * 
+	 * A target auction is an auction selling the types of items the guest is interested in
 	 */
-	reflex reply_messages when: (!empty(proposes))
+	action joinAuction
 	{
-		message requestFromInitiator <- (proposes at 0);
-		// TODO: maybe define message contents somewhere, rn this works
+		hunger <- 100.0;
+		thirst <- 100.0;
+		isConscious <- true;
+		color <- #red;
+		
+		// Free any ambulance from getting this guest
+		ask Ambulance
+		{
+			if(targetGuest = myself)
+			{
+				targetGuest <- nil;
+				deliveringGuest <- false;
+			}
+		}
+		// Also remove this guest from the hospital's lists
+		ask Hospital
+		{
+			unconsciousGuests >- myself;
+			underTreatment >- myself;
+		}
+		
+		if(location distance_to(targetAuction.location) > 9)
+		{
+			target <- targetAuction;
+		}
+		else
+		{
+			target <- nil;
+		}
+	
+	}
+	
+	action processAuctionProposeMessage(message requestFromInitiator)
+	{
 		string auctionType <- requestFromInitiator.contents[1];
 		if(auctionType = "Dutch")
 		{
@@ -733,11 +777,24 @@ species Guest skills:[moving, fipa]
 			else
 			{
 				do reject_proposal (message: requestFromInitiator, contents: ["I, " + name + ", already have a house full of crap, you scoundrel!"]);	
-				targetAuction <- nil;
-				target <- nil;
+				do postAuctionSettings;
 			}
 		}
 	}
+	/*
+	 * This is a used when auctions end
+	 */
+	action postAuctionSettings
+	{
+		target <- nil;
+		targetAuction <- nil;
+	}
+	
+	action stageReached
+	{
+		target <- nil;
+	}
+	//Guest actions end
 	
 }// Guest end
 
@@ -751,8 +808,6 @@ species Guest skills:[moving, fipa]
  */
 species Building
 {
-	bool sellsFood <- false;
-	bool sellsDrink <- false;
 	
 }
 
@@ -776,7 +831,7 @@ species InfoCenter parent: Building
 	 */
 	reflex checkForBadGuest
 	{
-		ask Guest at_distance infoCenterDetectionDistance
+		ask Guest at_distance 0
 		{
 			if(self.isBad)
 			{
@@ -794,10 +849,15 @@ species InfoCenter parent: Building
 	}
 }// InfoCenter end
 
+species Store parent: Building
+{
+	
+}
+
 /* 
  * These stores replenish guests' hunger. The info center keeps a list of food stores.
  */
-species FoodStore parent: Building
+species FoodStore parent: Store
 {
 	bool sellsFood <- true;
 	
@@ -810,7 +870,7 @@ species FoodStore parent: Building
 /* 
  * These stores replenish guests' thirst. The info center keeps a list of drink stores.
  */
-species DrinkStore parent: Building
+species DrinkStore parent: Store
 {
 	bool sellsDrink <- true;
 	
@@ -858,7 +918,7 @@ species Hospital parent: Building
 	 */
 	reflex dispatchAmbulance when: length(unconsciousGuests) > length(underTreatment)
 	{
-		ask Ambulance at_distance infoCenterDetectionDistance
+		ask Ambulance at_distance 0
 		{
 			if(targetGuest = nil)
 			{
@@ -881,7 +941,7 @@ species Hospital parent: Building
 	 */
 	reflex reviveGuest when: length(underTreatment) > 0
 	{
-		ask Guest at_distance infoCenterDetectionDistance
+		ask Guest at_distance 0
 		{
 			if(myself.underTreatment contains self)
 			{
@@ -907,7 +967,7 @@ species Hospital parent: Building
 		/*
 		 * TODO: document
 		 */
-		ask Ambulance at_distance infoCenterDetectionDistance
+		ask Ambulance at_distance 0
 		{
 			if(deliveringGuest = true)
 			{
@@ -936,6 +996,9 @@ species ShowMaster
 	//For tracking when did the last auction/show end
 	float endTime <- 0.0;
 	
+	//the last time when auctions and stages happened
+	int lastDayForAction <- -1;
+	
 	aspect
 	{
 		draw pyramid(mySize) color: myColor;
@@ -961,7 +1024,7 @@ species ShowMaster
 	 * This creates the auctioners within the set time limits from the beginning.
 	 * auctionCreationMin and auctionCreationMax set at the top
 	 */
-	reflex createAuctioners when: !auctionersCreated and !runShows and time > endTime + rnd(showMasterIntervalMin, showMasterIntervalMax)
+	reflex createAuctioners when: !auctionersCreated and !runShows and time > endTime + rnd(showMasterIntervalMin, showMasterIntervalMax) and length(itemsAvailable) > 0 and lastDayForAction < currDay
 	{
 		string genesisString <- name + " creating auctions: ";
 		
@@ -1022,7 +1085,7 @@ species ShowMaster
 	 * This creates the stages within the set time limits from the beginning.
 	 * auctionCreationMin and auctionCreationMax set at the top
 	 */
-	reflex createStages when: !stagesCreated and runShows and time > endTime + rnd(showMasterIntervalMin, showMasterIntervalMax)
+	reflex createStages when: !stagesCreated and runShows and time > endTime + rnd(showMasterIntervalMin, showMasterIntervalMax) and length(stageColors) > 0
 	{
 		string genesisString <- name + "creating stages: ";
 //		create Stage number: stageNumber
@@ -1034,6 +1097,7 @@ species ShowMaster
 			genesisString <- genesisString + name + " (" + myColor + ") with " + stageGenre + " ";
 			myIndex <- counter;
 			counter <- counter + 1;
+			write name + ' location: ' + location;
 		}
 		stagesCreated <- true;
 		write genesisString;
@@ -1051,6 +1115,7 @@ species ShowMaster
 		runShows <- false;
 		endTime <- time;
 		write name + " knows the stages have finished at " + endTime;
+		lastDayForAction <- lastDayForAction + 1;
 		
 		// reset unsatisfied for all guests
 		ask Guest
@@ -1121,104 +1186,9 @@ species ShowMaster
 		}
 		if(globalUtility != 0.0)
 		{
-	 		write name + " calculated global utility: " + globalUtility;
+	 		//write name + " calculated global utility: " + globalUtility;
 	 		
 	 	}
-	 	
-	 	// OLD STUFF BELOW HERE
-/*
-//	 	float highestUtility <- 0.0;
-	 	/*
-	 	 * Assign each guest their highest utility stage
-	 	 * do not assign unsatisfied guests a new target, they've been through this
-	 	 *
-	 	ask Guest
-	 	{
-	 		if(!empty(stageUtilities) and length(myself.stages) = length(stageUtilities) and targetStage = nil and !unsatisfied)
-	 		{
-			 	loop i from: 0 to: length(stageUtilities)-1
-			 	{
-			 		if(stageUtilities[i] > highestUtility)
-			 		{
-			 			highestUtility <- stageUtilities[i];
-						highestUtilityIndex <- i;
-//			 			targetStage <- myself.stages[i];
-//			 			targetStage.crowdAtStage <+ self;
-			 		}
-			 	}
-	 			targetStage <- myself.stages[highestUtilityIndex];
-	 			myself.stages[highestUtilityIndex].crowdAtStage <+ self;
-	 			write myself.name + " has assigned " + name + " targetStage " + targetStage;
-	 		}
-	 	}
-	 	/*
-	 	 * Check if any guests have exceeded their maxGuests
-	 	 * otherwise, assign this guest the next highest utility from their current choice
-	 	 * this will probably lead to some agents circulating in search of a smaller crowd
-	 	 * if no stages are good, set unsatisfied true and leave the guest wandering
-	 	 * 
-	 	 *
-		ask Guest
-	 	{
-	 	 	if(targetStage != nil and !dead(targetStage) and length(targetStage.crowdAtStage) > preferenceStageCrowdSize)
-	 	 	{
-				write name + " crowd at " + targetStage + ": " + length(targetStage.crowdAtStage) + " is too big, prefer " + preferenceStageCrowdSize;
- 				// remove guest from any stage it is currently assigned to
- 				targetStage.crowdAtStage >- self;
-// 				targetStage <- nil;
- 				target <- nil;
- 				
- 				//get second highest utility
- 				float secondHighestUtility <- 0.0;
- 				highestUtilityIndex <- -1;
-			 	loop i from: 0 to: length(stageUtilities)-1
-			 	{
-			 		if(stageUtilities[i] > secondHighestUtility and stageUtilities[i] < highestUtility)
-			 		{
-			 			secondHighestUtility <- stageUtilities[i];
-			 			highestUtilityIndex <- i;
-			 		}
-				}
-				// If for some reason the highestUtilityIndex points to the current target..
-				if(highestUtilityIndex != -1)
-				{
-					if(myself.stages[highestUtilityIndex] != targetStage)
-					{
-						targetStage <- myself.stages[highestUtilityIndex];
-						write name + " changes target to " + targetStage;	
-					}
-				}
-				else if(highestUtilityIndex = -1)
-				{
-					write name + " the crowd is too big everywhere!";
-					unsatisfied <- true;
-					target <- nil;
-					targetStage <- nil;
-					highestUtility <- 0.0;
-				}
-/*				// This means none of the other stages were satisfying
-				if(secondHighestUtility = 0.0)
-				{
-//					write name + " crowd in all the shows is too big!";
-					//unsatisfied <- true;
-					target <- nil;
-					targetStage <- nil;
-					highestUtility <- 0.0;
-				}
-				else
-				{
-		 			// remove from current stage
-		 			myself.stages[highestUtilityIndex].crowdAtStage >- self; 
-		 			// change to new stage
-		 			targetStage <- myself.stages[highestUtilityIndex];
-		 			target <- targetStage;
-		 			// add to list on new stage
-		 			myself.stages[highestUtilityIndex].crowdAtStage <+ self;
-					highestUtility <- secondHighestUtility;
-					write name + " changes target to " + targetStage;
-				}
-			}
-		} */
 	}
 }
 
@@ -1483,7 +1453,7 @@ species Auctioner skills:[fipa, moving] parent: Building
  */
 species Stage parent: Building
 {
-	float mySize <- 10.0;
+	float mySize <- 5.0;
 	rgb myColor <- #gray;
 	
 	bool showExpired <- false;
@@ -1510,27 +1480,11 @@ species Stage parent: Building
 	{
 		if(!runShows)
 		{
-			mySize <- 10.0;
+			mySize <- 5.0;
 			myColor <- #gray;
 		}
-		draw cylinder(mySize,3.0) color: myColor size: mySize;
+		draw cylinder(mySize, 0.1) color: myColor at: location;
 	}
-	
-	/*
-	 * If a show is on, flash colors and size
-	 */
-/*	reflex casinoLigths when: runShows and !showExpired
-	{
-		myColor <- rnd_color(255);
-		if(flip(0.5) and mySize < 15)
-		{
-			mySize <- mySize + 1;
-		}
-		else if(mySize >= 13)
-		{
-			mySize <- mySize - 1;
-		}
-	}*/
 	
 	/*
 	 * When the time is greater than the start time + duration, the show has run for long enough and will end
