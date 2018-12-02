@@ -11,7 +11,7 @@ global
 	 * Guest configs
 	 */
 	//int guestNumber <- rnd(20)+20;
-	int guestNumber <- 10;
+	int guestNumber <- 50;
 	float guestSpeed <- 0.5;
 	
 	// the rate at which guests grow hungry / thirsty
@@ -19,21 +19,24 @@ global
 	//now if this is -1, guests will use their personal random hunger rate
 	// if it is not -1, they use this instead as a global hungerrate
 	int globalHungerRate <- -1;
+	//they will start looking for food under this value
+	int gettingHungry <- 30;
 	
 	/*
 	 * Building configs
 	 */
-	int foodStoreNumber <- rnd(2,3);
-	int drinkStoreNumber <- rnd(2,3);
+	int foodStoreNumber <- 0;// rnd(2,3);
+	int drinkStoreNumber <- 0;// rnd(2,3);
 	int approximateDetectionDistance <- 3;
 	point infoCenterLocation <- {50,50};
+	int barNumber <- rnd(3, 4);
 	
 	/*
 	 * Auction configs
 	 */
 	point showMasterLocation <- {-10,50};
 	//also determines the number of auctions
-	list<string> itemsAvailable <- ["branded backpacks","signed shirts","heavenly hats", "posh pants"];
+	list<string> itemsAvailable <- [];// ["branded backpacks","signed shirts","heavenly hats", "posh pants"];
 	list<string> auctionTypes <- ["Dutch", "English", "Sealed"];
 	int auctionerWaitTime <- 10;
 	// This is managed by the ShowMaster
@@ -97,7 +100,7 @@ global
 									];
 	bool runShows <- false;
 	//also determines the number of stages
-	list<rgb> stageColors <- [#lime, #pink, #lightblue, #purple];
+	list<rgb> stageColors <- []; // [#lime, #pink, #lightblue, #purple];
 	float globalUtility <- 0.0;
 	
 	/*
@@ -111,6 +114,12 @@ global
 	//Everything happens only once per day
 	int currDay <- 0;
 	int cyclesPerDay <- 2880;
+	
+	//LongStayPlace configs
+	float longStayPlaceRadius <- 4.0;
+	int maxNumberOfCyclesAtPlace <- 200;
+	int minNumberOfCyclesAtPlace <- 100;
+	
 	init
 	{
 		/*
@@ -137,9 +146,18 @@ global
 		}
 		
 		/*
-		 * Number of stores id defined above 
+		 * Number of stores is defined above 
 		 */
 		create DrinkStore number: drinkStoreNumber
+		{
+
+		}
+		
+		/*
+		 * Number of bars is defined above
+		 */
+		 
+		create Bar number: barNumber
 		{
 
 		}
@@ -199,8 +217,8 @@ global
 species Guest skills:[moving, fipa]
 {
 	// Default hunger vars
-	float thirst <- rnd(50)+50.0;
-	float hunger <- rnd(50)+50.0;
+	float thirst <- 0.0;
+	float hunger <- 0.0;
 	int hungerRate <- rnd(1, 3);
 	bool isConscious <- true;
 	
@@ -214,6 +232,8 @@ species Guest skills:[moving, fipa]
 	list<Building> guestBrain;
 	// Target to move towards
 	Building target <- nil;
+	//x and y offset of the target
+	pair<float, float> targetOffset <- 0.0 :: 0.0;
 
 	// Which auction is guest participating in
 	Auctioner targetAuction;
@@ -251,6 +271,9 @@ species Guest skills:[moving, fipa]
 	int highestUtilityIndex;
 	bool unsatisfied <- false;
 	
+	//LongStayPlaceConfigs
+	int cyclesLeftToStay <- 0;
+	
 	aspect default
 	{
 		if(isBad) {
@@ -283,6 +306,14 @@ species Guest skills:[moving, fipa]
 	
 	init
 	{
+		hunger <- self getNewHungerOrThirstValue[];
+		thirst <- self getNewHungerOrThirstValue[];
+		
+		if(globalHungerRate != -1)
+		{
+			hungerRate <- globalHungerRate;
+		}
+		
 		if(length(itemsAvailable) > 0)
 		{
 			preferredItem <- itemsAvailable[rnd(length(itemsAvailable) - 1)];	
@@ -418,13 +449,9 @@ species Guest skills:[moving, fipa]
 		 * agent then has 50% chance of either drawing an appropriate store from memory,
 		 * or heading to info center as usual.
 		 * 
-		 * Agents can hold two stores in memory
-		 * (typically these will be 1 drink and 1 food due to how the agents' grow thirsty/hungry),
-		 * and will check if the stores in their memory hace the thing they want (food/drink)
-		 * 
 		 * Only conscious agents will react to their thirst/hunger 
 		 */
-		if(target = nil and (thirst < 50 or hunger < 50) and isConscious)
+		if(target = nil and (thirst < gettingHungry or hunger < gettingHungry) and isConscious)
 		{	
 			string destinationMessage <- name; 
 
@@ -432,15 +459,15 @@ species Guest skills:[moving, fipa]
 			 * Is agent thirsty, hungry or both.
 			 * Guests will prefer drink over food
 			 */
-			if(thirst < 50 and hunger < 50)
+			if(thirst < gettingHungry and hunger < gettingHungry)
 			{
 				destinationMessage <- destinationMessage + " is thirsty and hungry,";
 			}
-			else if(thirst < 50)
+			else if(thirst < gettingHungry)
 			{
 				destinationMessage <- destinationMessage + " is thirsty,";
 			}
-			else if(hunger < 50)
+			else if(hunger < gettingHungry)
 			{
 				destinationMessage <- destinationMessage + " is hungry,";
 			}
@@ -451,24 +478,8 @@ species Guest skills:[moving, fipa]
 			// Only use brain if the guest has locations saved in brain
 			if(length(guestBrain) > 0 and useBrain = true)
 			{
-
-				loop i from: 0 to: length(guestBrain)-1
-				{
-					// If user is hungry, ask guestBrain for food stores,
-					// in the case of draw and otherwise ask for drink stores
-					if(thirst > hunger and FoodStore = species(guestBrain[i]))
-					{
-						target <- guestBrain[i];
-						destinationMessage <- destinationMessage + " (brain used)";
-						break;
-					}
-					else if(thirst <= hunger and DrinkStore = species(guestBrain[i]))
-					{
-						target <- guestBrain[i];
-						destinationMessage <- destinationMessage + " (brain used)";
-						break;
-					}
-				}
+				target <- one_of(guestBrain);
+				destinationMessage <- destinationMessage + " (brain used)";
 			}
 
 			// If no valid store was found in the brain, head to info center
@@ -480,29 +491,6 @@ species Guest skills:[moving, fipa]
 			destinationMessage <- destinationMessage + " heading to " + target.name;
 			//write destinationMessage;
 		}
-	}
-	
-	/*
-	 * if a guest's thirst or hunger <= 0, then the guest faints
-	 * only conscious guests can faint
-	 */
-	reflex thenPerish when: (thirst <= 0 or hunger <= 0) and isConscious
-	{
-		string perishMessage <- name + " fainted";
-		
-		if(thirst <= 0)
-		{
-			perishMessage <- perishMessage + " of thirst.";
-		}
-		else if(hunger <= 0)
-		{
-			perishMessage <- perishMessage + " of hunger.";
-		}
-		
-		//write perishMessage;
-		isConscious <- false;
-		color <- #yellow;
-		target <- nil;
 	}
 
 	/* 
@@ -527,7 +515,7 @@ species Guest skills:[moving, fipa]
 	 */
 	reflex moveToTarget when: target != nil
 	{
-		do goto target:target.location speed: guestSpeed;
+		do goto target:{target.location.x + targetOffset.key, target.location.y + targetOffset.value} speed: guestSpeed;
 	}
 	
 	/*
@@ -544,6 +532,14 @@ species Guest skills:[moving, fipa]
 		{
 			do foodDrinkStoreReached;
 		}
+		if(LongStayPlace.subspecies contains species(target))
+		{
+			do longStayPlaceReached;
+		}
+		if(target = one_of(InfoCenter))
+		{
+			do infoCenterReached;
+		}
 	}
 	
 	/*
@@ -551,11 +547,7 @@ species Guest skills:[moving, fipa]
 	 */
 	reflex checkForTargetReachedApproximately when: target != nil and location distance_to(target.location) <= approximateDetectionDistance
 	{
-		if(target = one_of(InfoCenter))
-		{
-			do infoCenterReached;
-		}
-		else if(Stage = species(target))
+		if(Stage = species(target))
 		{
 			do stageReached;
 		}
@@ -585,9 +577,53 @@ species Guest skills:[moving, fipa]
 		}
 	}
 	
-	reflex wanderRandomly when: target = nil
+	reflex wanderRandomly when: target = nil and isConscious
 	{
 		do wander;
+	}
+	
+	/*
+	 * Guest is at a place where want to stay for a while
+	 * The long condition ensures that it can be either at the circumference of the stay but also between the center and the circumference
+	 * (before this, when the guest fell unconscious at that small area, much weird shit happened)
+	 */
+	reflex atLongStayPlace when: LongStayPlace.subspecies contains species(target) and 
+		location distance_to({target.location.x + targetOffset.key, target.location.y + targetOffset.value}) <= target.location distance_to({target.location.x + targetOffset.key, target.location.y + targetOffset.value})
+	{
+		if(species(target) = Bar)
+		{
+			do beingAtBar;
+		}
+		
+		cyclesLeftToStay <- cyclesLeftToStay - 1;
+		if(cyclesLeftToStay <= 0)
+		{
+			targetOffset <- 0.0 :: 0.0;
+			target <- nil;
+		}
+	}
+	
+	/*
+	 * if a guest's thirst or hunger <= 0, then the guest faints
+	 * only conscious guests can faint
+	 */
+	reflex thenPerish when: (thirst <= 0 or hunger <= 0) and isConscious
+	{
+		string perishMessage <- name + " fainted";
+		
+		if(thirst <= 0)
+		{
+			perishMessage <- perishMessage + " of thirst.";
+		}
+		else if(hunger <= 0)
+		{
+			perishMessage <- perishMessage + " of hunger.";
+		}
+		
+		//write perishMessage;
+		isConscious <- false;
+		color <- #yellow;
+		target <- nil;
 	}
 	
 	//Guest actions begin
@@ -610,18 +646,69 @@ species Guest skills:[moving, fipa]
 		string replenishString <- name;	
 		if(FoodStore = species(target))
 		{
-			hunger <- 100.0;
+			hunger <- self getNewHungerOrThirstValue[];
 			replenishString <- replenishString + " ate food at " + target.name;
 		}
 		else if(DrinkStore = species(target))
 		{
-			thirst <- 100.0;
+			thirst <- self getNewHungerOrThirstValue[];
 			replenishString <- replenishString + " had a drink at " + target.name;
 		}
 		
 		//write replenishString;
 		target <- nil;
 	}
+	
+	/*
+	 * Actions to call when the guest reaches the target where they want to stay for a while
+	 * They will pick a random position around the place -> random point on the circumference around the target with a given radius
+	 */
+	action longStayPlaceReached
+	{
+		float angle <- rnd(360.0) * #pi * 2.0;
+		float x <- cos(angle) * longStayPlaceRadius;
+		float y <- sin(angle) * longStayPlaceRadius;
+		targetOffset <- x :: y;
+		cyclesLeftToStay <- rnd(minNumberOfCyclesAtPlace, maxNumberOfCyclesAtPlace);
+		
+		if(Bar = species(target))
+		{
+			do barReached;
+		}
+	}
+	
+	/*
+	 * Guest arrives at bar. 
+	 * Called when arrives
+	 * Not sure if needed, I just created this to have it.
+	 */
+	action barReached
+	{
+		
+	}
+	
+	/*
+	 * Guest does this action at a bar
+	 * They can talk, socialize etc
+	 * Called with every cycle
+	 */
+	 
+	action beingAtBar
+	{
+		if(hunger <= gettingHungry)
+		{
+			hunger <- self getNewHungerOrThirstValue[];
+		}
+		if(thirst <= gettingHungry)
+		{
+			thirst <- self getNewHungerOrThirstValue[];
+		}
+	}
+	 
+	 float getNewHungerOrThirstValue
+	 {
+	 	return rnd(150.0) + 50;
+	 }
 	
 	/* 
 	 * Guest arrives to info center
@@ -640,24 +727,12 @@ species Guest skills:[moving, fipa]
 		target <- nil;
 		ask InfoCenter at_distance 0
 		{
-			if(myself.thirst <= myself.hunger)
-			{
-				myself.target <- drinkStoreLocs[rnd(length(drinkStoreLocs) - 1)];
-				destinationString <- destinationString + "drink at ";
-			}
-			else
-			{
-				myself.target <- foodStoreLocs[rnd(length(foodStoreLocs) - 1)];
-				destinationString <- destinationString + "food at ";
-			}
-			
-			if(length(myself.guestBrain) < 2)
+			myself.target <- one_of(Bar);
+			if(!(myself.guestBrain contains myself.target))
 			{
 				myself.guestBrain <+ myself.target;
 				destinationString <- destinationString + "(added to brain) ";
 			}
-			
-			//write destinationString + myself.target.name;
 		}
 	}
 	
@@ -852,6 +927,26 @@ species InfoCenter parent: Building
 species Store parent: Building
 {
 	
+}
+
+/*
+ * Collection of buildings where the guests are supposed to stay for a while
+ */
+
+species LongStayPlace parent: Building
+{
+	
+}
+
+/*this sells food and drinks and guests can sit in a bar
+* This is used in the final project instead of Food and Drink store
+*/
+species Bar parent: LongStayPlace
+{
+	aspect default
+	{
+		draw pyramid(5) at: location color: #purple;
+	}
 }
 
 /* 
@@ -1596,6 +1691,7 @@ experiment main type: gui
 			species FoodStore;
 			species DrinkStore;
 			species InfoCenter;
+			species Bar;
 			
 			species Security;
 			species Hospital;
