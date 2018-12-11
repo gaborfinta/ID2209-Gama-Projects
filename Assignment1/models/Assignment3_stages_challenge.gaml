@@ -11,7 +11,7 @@ global
 	 * Guest configs
 	 */
 	//int guestNumber <- rnd(20)+20;
-	int guestNumber <- 50;
+	int guestNumber <- 15;
 	float guestSpeed <- 0.5;
 	
 	// the rate at which guests grow hungry / thirsty
@@ -36,11 +36,10 @@ global
 	 */
 	point showMasterLocation <- {-10,50};
 	//also determines the number of auctions
-	list<string> itemsAvailable <- [];// ["branded backpacks","signed shirts","heavenly hats", "posh pants"];
+	//list<string> itemsAvailable <- [];
+	list<string> itemsAvailable <- ["branded backpacks","signed shirts","heavenly hats", "posh pants"];
 	list<string> auctionTypes <- ["Dutch", "English", "Sealed"];
 	int auctionerWaitTime <- 10;
-	// This is managed by the ShowMaster
-	bool runAuctions <- false;
 	// The range for the pause between auctions/shows
 	int showMasterIntervalMin <- 100;
 	int showMasterIntervalMax <- 300;
@@ -98,9 +97,9 @@ global
 									,"pansori"
 									,"geomungo sanjo"
 									];
-	bool runShows <- false;
 	//also determines the number of stages
-	list<rgb> stageColors <- []; // [#lime, #pink, #lightblue, #purple];
+	//list<rgb> stageColors <- [];
+	list<rgb> stageColors <- [#lime, #pink, #lightblue, #purple];
 	float globalUtility <- 0.0;
 	
 	/*
@@ -113,7 +112,7 @@ global
 	
 	//Everything happens only once per day
 	int currDay <- 0;
-	int cyclesPerDay <- 2880;
+	int cyclesPerDay <- 3000;
 	
 	//LongStayPlace configs
 	float longStayPlaceRadius <- 4.0;
@@ -188,7 +187,7 @@ global
 			
 		}
 	}
-	reflex currDay when: mod(time, cyclesPerDay) = 0
+	reflex currDay when: time != 0 and mod(time, cyclesPerDay) = 0
 	{
 		currDay <- currDay + 1;
 	}
@@ -556,12 +555,21 @@ species Guest skills:[moving, fipa]
 	/*
 	 * TODO: Document
 	 */
-	reflex listen_messages when: (!empty(cfps))
+	reflex listenCFPSMessages when: (!empty(cfps))
 	{
 		message requestFromInitiator <- (cfps at 0);
 		if(Auctioner.population contains requestFromInitiator.sender)
 		{
 			do processAuctionCFPSMessage(requestFromInitiator);
+		}
+	}
+	
+	reflex listenInformMessages when: (!empty(informs))
+	{
+		message requestFromInitiator <- (informs at 0);
+		if(Conference.population contains requestFromInitiator.sender)
+		{
+			do processConferenceInformMessage(requestFromInitiator);
 		}
 	}
 	
@@ -575,6 +583,11 @@ species Guest skills:[moving, fipa]
 		{
 			do processAuctionProposeMessage(requestFromInitiator);
 		}
+		else if(Conference.population contains requestFromInitiator.sender)
+		{
+			do processConferenceProposeMessage(requestFromInitiator);
+		}
+		
 	}
 	
 	reflex wanderRandomly when: target = nil and isConscious
@@ -624,6 +637,8 @@ species Guest skills:[moving, fipa]
 		isConscious <- false;
 		color <- #yellow;
 		target <- nil;
+		targetOffset <- 0.0 :: 0.0;
+		
 	}
 	
 	//Guest actions begin
@@ -703,6 +718,7 @@ species Guest skills:[moving, fipa]
 		{
 			thirst <- self getNewHungerOrThirstValue[];
 		}
+		
 	}
 	 
 	 float getNewHungerOrThirstValue
@@ -868,6 +884,35 @@ species Guest skills:[moving, fipa]
 	action stageReached
 	{
 		target <- nil;
+	}
+	
+	action processConferenceProposeMessage(message requestFromInitiator)
+	{
+		if(requestFromInitiator.contents[0] = 'interested?')
+		{
+			if(target = nil)
+			{
+				do accept_proposal(message: requestFromInitiator, contents: ["I'd love a great little chitchat"]);	
+			}
+			else
+			{
+				do reject_proposal(message: requestFromInitiator, contents: ['lel dude, im here to drink']);
+			}
+		}
+	}
+	
+	action processConferenceInformMessage(message requestFromInitiator)
+	{
+
+		if(requestFromInitiator.contents[0] = 'conference start')
+		{
+			
+		}
+		else if(requestFromInitiator.contents[0] = "you're in!")
+		{
+			target <- requestFromInitiator.sender;
+		}
+		
 	}
 	//Guest actions end
 	
@@ -1076,23 +1121,41 @@ species Hospital parent: Building
 
 /*
  * The ShowMaster creates auctioners and controls Stages, so that they will take turns
+ * Also controls conferences
  */
 species ShowMaster
 {
 	rgb myColor <- rnd_color(255);
 	int mySize <- 10;
-	bool auctionersCreated <- false;
 	list<Auctioner> auctioners <- [];
 	bool auctionersInPosition <- false;
 	
-	bool stagesCreated <- false;
+	
 	list<Stage> stages <- [];
+
 	
-	//For tracking when did the last auction/show end
-	float endTime <- 0.0;
-	
-	//the last time when auctions and stages happened
+	//the last time when attractions happened
 	int lastDayForAction <- -1;
+	
+	/*
+	 * Attraction variables. one for each
+	  */
+	//the upcoming attraction is true
+	bool auctionsNext <- true;
+	bool stagesNext <- false;
+	bool conferenceNext <- false;
+	
+	//is created variables
+	bool auctionsCreated <- false;
+	bool stagesCreated <- false;
+	bool conferenceCreated <- false;
+	
+	//is running variables
+	bool auctionsRunning <- false;
+	bool stagesRunning <- false;
+	bool conferenceRunning <- false;
+	
+	int nextAttractionStartTime <- rnd(auctionCreationMin, auctionCreationMax);
 	
 	aspect
 	{
@@ -1115,34 +1178,39 @@ species ShowMaster
 		}
 	}
 	
-	/*
-	 * This creates the auctioners within the set time limits from the beginning.
-	 * auctionCreationMin and auctionCreationMax set at the top
-	 */
-	reflex createAuctioners when: !auctionersCreated and !runShows and time > endTime + rnd(showMasterIntervalMin, showMasterIntervalMax) and length(itemsAvailable) > 0 and lastDayForAction < currDay
+	reflex startNewDay when: lastDayForAction < currDay
 	{
-		string genesisString <- name + " creating auctions: ";
-		
-		loop i from: 0 to: length(itemsAvailable)-1
+		auctionsNext <- true;
+		stagesNext <- false;
+		lastDayForAction <- lastDayForAction + 1;
+		nextAttractionStartTime <- int(time + rnd(auctionCreationMin, auctionCreationMax));
+	}
+	
+	/*
+	 * Check for available attractions and start them if possible.
+	 * The order here determines the order in the simulation
+	 */
+	reflex createAttractions when: nextAttractionStartTime = time
+	{
+		if(auctionsNext)
 		{
-			create Auctioner
-			{
-				location <- myself.location;
-				soldItem <- itemsAvailable[i];
-				genesisString <- genesisString + name + " with " + itemsAvailable[i] + " ";
-				targetLocation <- {rnd(100),rnd(100)};
-				myself.auctioners <+ self;
-			}
+			do createAuctions;
 		}
-		write genesisString;
-		auctionersCreated <- true;
+		else if(stagesNext)
+		{
+			do createStages;
+		}
+		else if(conferenceNext)
+		{
+			do createConferences;
+		}
 	}
 	
 	/*
 	 * Ask if auctioners are done running around
 	 * TODO: document auctioneers returning and being sent out again
 	 */
-	reflex startAuctions when: auctionersCreated and !runAuctions and !runShows
+	reflex startAuctions when: auctionsCreated and !auctionsRunning
 	{
 		bool stillOnTheWay <- false;
 		loop auc over: auctioners
@@ -1157,7 +1225,7 @@ species ShowMaster
 		{
 			auctionersInPosition <- true;
 			write name + " notified auctioners are in position, starting auctions soon.";
-			runAuctions <- true;	
+			auctionsRunning <- true;	
 		}
 	}
 	
@@ -1165,52 +1233,30 @@ species ShowMaster
 	 * When auctioners return, they remove themselves from the auctioner list and do die
 	 * When the list is empty and auctions are running, means all the auctioners have returned
 	 * 
-	 * Start shows and set auctionersCreated and runAuctions to false so they can be created again
+	 * Start shows and set auctionsCreated and runAuctions to false so they can be created again
 	 */
-	reflex areThereAnyAuctionersLeft when: empty(auctioners) and runAuctions
+	reflex areThereAnyAuctionersLeft when: empty(auctioners) and auctionsRunning
 	{
-		auctionersCreated <- false;
-		runAuctions <- false;
-		runShows <- true;
-		endTime <- time;
-		write name + " knows the auctioners have served their purpose at " + endTime;
+		auctionsCreated <- false;
+		auctionsRunning <- false;
+		stagesNext <- true;
+		do attractionEnded;
+		write name + " knows the auctioners have served their purpose";
 	}
 	
-	/*
-	 * This creates the stages within the set time limits from the beginning.
-	 * auctionCreationMin and auctionCreationMax set at the top
-	 */
-	reflex createStages when: !stagesCreated and runShows and time > endTime + rnd(showMasterIntervalMin, showMasterIntervalMax) and length(stageColors) > 0
-	{
-		string genesisString <- name + "creating stages: ";
-//		create Stage number: stageNumber
-		int counter <- 0;
-		create Stage number: length(stageColors)
-		{
-			myself.stages <+ self;
-			myColor <- stageColors[counter];
-			genesisString <- genesisString + name + " (" + myColor + ") with " + stageGenre + " ";
-			myIndex <- counter;
-			counter <- counter + 1;
-			write name + ' location: ' + location;
-		}
-		stagesCreated <- true;
-		write genesisString;
-	}
-
 	/*
 	 * When stages' shows are finished, they remove themselves from the stages list and do die
 	 * When the list is empty and shows are running, means all the stages have finished
 	 * 
 	 * set stagesCreated and runShows to false so they can be created again
 	 */
-	reflex areThereAnystagesLeft when: empty(stages) and runShows and stagesCreated
+	reflex areThereAnystagesLeft when: empty(stages) and stagesRunning
 	{
 		stagesCreated <- false;
-		runShows <- false;
-		endTime <- time;
-		write name + " knows the stages have finished at " + endTime;
-		lastDayForAction <- lastDayForAction + 1;
+		stagesRunning <- false;
+		conferenceNext <- true;
+		do attractionEnded;
+		write name + " knows the stages have finished";
 		
 		// reset unsatisfied for all guests
 		ask Guest
@@ -1222,7 +1268,7 @@ species ShowMaster
 	/*
 	 * The ShowMaster will coordinate guests around to the stages 
 	 */
-	 reflex coordinateGuests when: runShows and stagesCreated// and length(stageColors) = length(stages)
+	 reflex coordinateGuests when: stagesRunning// and length(stageColors) = length(stages)
 	 {
 	 	// reset globalUtility, we'll recalculate it now anyway
 	 	globalUtility <- 0.0;
@@ -1285,6 +1331,77 @@ species ShowMaster
 	 		
 	 	}
 	}
+	
+	reflex conferenceOver when: length(Conference.population) = 0
+	{
+		
+	}
+	
+	/*
+	 * ShowMaster actions
+	 */
+	
+	action createAuctions
+	{
+		string genesisString <- name + " creating auctions: ";
+		
+		loop i from: 0 to: length(itemsAvailable)-1
+		{
+			create Auctioner
+			{
+				location <- myself.location;
+				soldItem <- itemsAvailable[i];
+				genesisString <- genesisString + name + " with " + itemsAvailable[i] + " ";
+				targetLocation <- {rnd(100),rnd(100)};
+				myself.auctioners <+ self;
+			}
+		}
+		write genesisString;
+		
+		auctionsCreated <- true;
+		auctionsNext <- false;
+		
+	}
+	
+	action createStages
+	{
+		string genesisString <- name + "creating stages: ";
+//		create Stage number: stageNumber
+		int counter <- 0;
+		create Stage number: length(stageColors)
+		{
+			myself.stages <+ self;
+			myColor <- stageColors[counter];
+			genesisString <- genesisString + name + " (" + myColor + ") with " + stageGenre + " ";
+			myIndex <- counter;
+			counter <- counter + 1;
+		}
+		write genesisString;
+		
+		stagesCreated <- true;
+		stagesRunning <- true;
+		stagesNext <- false;
+	}
+	
+	action createConferences
+	{
+		string genesisString <- name + " creating conference: ";
+		create Conference
+		{
+			
+		}
+		
+		conferenceCreated <- true;
+		conferenceNext <- false;
+		
+	}
+	
+	action attractionEnded
+	{
+		nextAttractionStartTime <- int(time + rnd(showMasterIntervalMin, showMasterIntervalMax));
+	}
+	
+	//End of ShowMaster actions
 }
 
 /*
@@ -1390,7 +1507,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 	 * 
 	 * runAuctions is set to true / false by the showMaster
 	 */
-	reflex sendStartAuction when: !auctionRunning and runAuctions and targetLocation = nil and !startAnnounced
+	reflex sendStartAuction when: !auctionRunning and one_of(ShowMaster).auctionsRunning and targetLocation = nil and !startAnnounced
 	{
 		write name + " starting " + auctionType + " soon";
 		do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'cfp', contents: ['Start', soldItem]);
@@ -1573,11 +1690,6 @@ species Stage parent: Building
 	
 	aspect default
 	{
-		if(!runShows)
-		{
-			mySize <- 5.0;
-			myColor <- #gray;
-		}
 		draw cylinder(mySize, 0.1) color: myColor at: location;
 	}
 	
@@ -1594,6 +1706,71 @@ species Stage parent: Building
 		do die;
 	}	
 	
+}
+
+species Conference skills: [fipa] parent: LongStayPlace
+{
+	int maxParticipants <- 3;
+	
+	//number of guests who replied
+	int replyCounter <- 0;
+	
+	list<Guest> participants <- [];
+	
+	init
+	{
+		write 'Conference announces it starts soon';
+		do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'propose', contents: ["interested?"]);
+	}
+	
+	reflex receive_accept_messages when: !empty(accept_proposals) 
+	{
+		replyCounter <- replyCounter + length(accept_proposals);
+		loop a over: accept_proposals
+		{
+			if(maxParticipants > length(participants))
+			{
+				participants <+ a.sender;
+				write "" + a.sender + " joins the scientific conference!";
+				do start_conversation (to: participants, protocol: 'no-protocol', performative: 'inform', contents: ["you're in!"]);
+			}
+		}
+	}
+	
+	//nobody cares about simple-minden individuals
+	reflex receive_reject_messages when: !empty(reject_proposals)
+	{
+		replyCounter <- replyCounter + length(reject_proposals);
+	}
+	
+	reflex startConference when: (length(participants) = maxParticipants or replyCounter = length(Guest.population))
+	{	
+		if(!one_of(ShowMaster).conferenceRunning)
+		{
+			if(length(participants) > 0 and participants max_of (location distance_to(each.location)) <= longStayPlaceRadius)
+			{
+				ask ShowMaster
+				{
+					conferenceRunning <- true;
+				}
+				do start_conversation (to: participants, protocol: 'no-protocol', performative: 'inform', contents: ["conference start"]);
+			}
+			
+		}
+	}
+	
+	reflex guestsHaveLeft when: one_of(ShowMaster).conferenceRunning and participants min_of (location distance_to(each.location)) > longStayPlaceRadius
+	{
+		write "conference ended, guess I'll die";
+		do die;
+	}
+	
+	
+	
+	aspect default
+	{
+		draw cylinder(3.5, 0.1) color: #black at: location;
+	}
 }
 
 // ################ Buildings end ################
@@ -1699,6 +1876,7 @@ experiment main type: gui
 			species ShowMaster;
 			species Auctioner;
 			species Stage;
+			species Conference;
 		}
 	}
 }
