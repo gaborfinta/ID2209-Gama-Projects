@@ -11,7 +11,7 @@ global
 	 * Guest configs
 	 */
 	//int guestNumber <- rnd(20)+20;
-	int guestNumber <- 15;
+	int guestNumber <- 50;
 	float guestSpeed <- 0.5;
 	
 	// the rate at which guests grow hungry / thirsty
@@ -116,6 +116,7 @@ global
 	
 	//LongStayPlace configs
 	float longStayPlaceRadius <- 4.0;
+	float floatError <- 0.0001;
 	int maxNumberOfCyclesAtPlace <- 200;
 	int minNumberOfCyclesAtPlace <- 100;
 	
@@ -271,7 +272,7 @@ species Guest skills:[moving, fipa]
 	bool unsatisfied <- false;
 	
 	//LongStayPlaceConfigs
-	int cyclesLeftToStay <- 0;
+	int cyclesLeftToStay <- -1;
 	
 	aspect default
 	{
@@ -601,7 +602,7 @@ species Guest skills:[moving, fipa]
 	 * (before this, when the guest fell unconscious at that small area, much weird shit happened)
 	 */
 	reflex atLongStayPlace when: LongStayPlace.subspecies contains species(target) and 
-		location distance_to({target.location.x + targetOffset.key, target.location.y + targetOffset.value}) <= target.location distance_to({target.location.x + targetOffset.key, target.location.y + targetOffset.value})
+		self distance_to target <= longStayPlaceRadius + floatError //float calculation error
 	{
 		if(species(target) = Bar)
 		{
@@ -609,10 +610,11 @@ species Guest skills:[moving, fipa]
 		}
 		
 		cyclesLeftToStay <- cyclesLeftToStay - 1;
-		if(cyclesLeftToStay <= 0)
+		if(cyclesLeftToStay = 0)
 		{
 			targetOffset <- 0.0 :: 0.0;
 			target <- nil;
+			cyclesLeftToStay <- -1;
 		}
 	}
 	
@@ -1343,44 +1345,51 @@ species ShowMaster
 	
 	action createAuctions
 	{
-		string genesisString <- name + " creating auctions: ";
-		
-		loop i from: 0 to: length(itemsAvailable)-1
+		if(length(itemsAvailable) > 0)
 		{
-			create Auctioner
+			string genesisString <- name + " creating auctions: ";
+			
+			loop i from: 0 to: length(itemsAvailable)-1
 			{
-				location <- myself.location;
-				soldItem <- itemsAvailable[i];
-				genesisString <- genesisString + name + " with " + itemsAvailable[i] + " ";
-				targetLocation <- {rnd(100),rnd(100)};
-				myself.auctioners <+ self;
+				create Auctioner
+				{
+					location <- myself.location;
+					soldItem <- itemsAvailable[i];
+					genesisString <- genesisString + name + " with " + itemsAvailable[i] + " ";
+					targetLocation <- {rnd(100),rnd(100)};
+					myself.auctioners <+ self;
+				}
 			}
+			write genesisString;
+			
+			auctionsCreated <- true;
+			auctionsNext <- false;
 		}
-		write genesisString;
-		
-		auctionsCreated <- true;
-		auctionsNext <- false;
 		
 	}
 	
 	action createStages
 	{
-		string genesisString <- name + "creating stages: ";
-//		create Stage number: stageNumber
-		int counter <- 0;
-		create Stage number: length(stageColors)
+		if(length(stageColors) > 0)
 		{
-			myself.stages <+ self;
-			myColor <- stageColors[counter];
-			genesisString <- genesisString + name + " (" + myColor + ") with " + stageGenre + " ";
-			myIndex <- counter;
-			counter <- counter + 1;
+			string genesisString <- name + "creating stages: ";
+	//		create Stage number: stageNumber
+			int counter <- 0;
+			create Stage number: length(stageColors)
+			{
+				myself.stages <+ self;
+				myColor <- stageColors[counter];
+				genesisString <- genesisString + name + " (" + myColor + ") with " + stageGenre + " ";
+				myIndex <- counter;
+				counter <- counter + 1;
+			}
+			write genesisString;
+			
+			stagesCreated <- true;
+			stagesRunning <- true;
+			stagesNext <- false;
+			
 		}
-		write genesisString;
-		
-		stagesCreated <- true;
-		stagesRunning <- true;
-		stagesNext <- false;
 	}
 	
 	action createConferences
@@ -1747,7 +1756,7 @@ species Conference skills: [fipa] parent: LongStayPlace
 	{	
 		if(!one_of(ShowMaster).conferenceRunning)
 		{
-			if(length(participants) > 0 and participants max_of (location distance_to(each.location)) <= longStayPlaceRadius)
+			if(length(participants) > 0 and participants max_of (location distance_to(each.location)) <= longStayPlaceRadius + floatError)
 			{
 				ask ShowMaster
 				{
@@ -1759,7 +1768,7 @@ species Conference skills: [fipa] parent: LongStayPlace
 		}
 	}
 	
-	reflex guestsHaveLeft when: one_of(ShowMaster).conferenceRunning and participants min_of (location distance_to(each.location)) > longStayPlaceRadius
+	reflex guestsHaveLeft when: one_of(ShowMaster).conferenceRunning and participants min_of (location distance_to(each.location)) > longStayPlaceRadius + floatError
 	{
 		write "conference ended, guess I'll die";
 		do die;
