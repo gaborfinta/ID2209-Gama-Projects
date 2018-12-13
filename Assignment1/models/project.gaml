@@ -2,6 +2,15 @@
 * Name: Assignment 2
 * Author: Finta, Vartiainen
 * Description: Festival scene with hungry guests, bad guests and a security guard
+* 
+* TODO:
+	debug conferences (Gábor)
+	debug stages (Ville)
+	add new type of guest (Ville)
+	 	parent for all non-building species (Ville)
+		also how do agents interact with each other? (3 attributes)
+	measure some global value (chaos or amount of population zombified) (Ville)
+	
 */
 
 model NewModel
@@ -765,7 +774,6 @@ species Guest skills:[moving, fipa]
 
 			// Send a message to the auctioner telling them the guest will participate
 			write name + " joins " + requestFromInitiator.sender + "'s auction for " + preferredItem;
-			// TODO: handle this better
 			// Essentially add the guest to the interestedGuests list
 			targetAuction.interestedGuests <+ self;
 			do joinAuction;
@@ -1105,10 +1113,7 @@ species Hospital parent: Building
 				//write name + " removed from underTreatment";
 			}
 		}
-		
-		/*
-		 * TODO: document
-		 */
+
 		ask Ambulance at_distance 0
 		{
 			if(deliveringGuest = true)
@@ -1141,7 +1146,7 @@ species ShowMaster
 	
 	/*
 	 * Attraction variables. one for each
-	  */
+	 */
 	//the upcoming attraction is true
 	bool auctionsNext <- true;
 	bool stagesNext <- false;
