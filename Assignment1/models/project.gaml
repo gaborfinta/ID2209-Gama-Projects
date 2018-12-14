@@ -20,7 +20,7 @@ global
 	 * Guest configs
 	 */
 	//int guestNumber <- rnd(20)+20;
-	int guestNumber <- 50;
+	int guestNumber <- 15;
 	float guestSpeed <- 0.5;
 	
 	// the rate at which guests grow hungry / thirsty
@@ -30,6 +30,8 @@ global
 	int globalHungerRate <- -1;
 	//they will start looking for food under this value
 	int gettingHungry <- 30;
+	
+	list<string> guestPersonalitiesEnum <- ["Party", "Chill", "Scientist", "FlatEarther"];
 	
 	/*
 	 * Building configs
@@ -284,6 +286,10 @@ species Guest skills:[moving, fipa]
 	
 	//LongStayPlaceConfigs
 	int cyclesLeftToStay <- -1;
+	
+	//Interaction configs
+	string personality <- guestPersonalitiesEnum[rnd(length(guestPersonalitiesEnum) - 1)];
+	bool isDisturbed <- false;
 	
 	aspect default
 	{
@@ -620,13 +626,15 @@ species Guest skills:[moving, fipa]
 		{
 			do beingAtBar;
 		}
+		else if(species(target) = Conference)
+		{
+			do beingAtConference;
+		}
 		
 		cyclesLeftToStay <- cyclesLeftToStay - 1;
 		if(cyclesLeftToStay = 0)
 		{
-			targetOffset <- 0.0 :: 0.0;
-			target <- nil;
-			cyclesLeftToStay <- -1;
+			do leaveLongStayPlace;
 		}
 	}
 	
@@ -733,13 +741,102 @@ species Guest skills:[moving, fipa]
 			thirst <- self getNewHungerOrThirstValue[];
 		}
 		
+		//Implementation of a chill person meeting with a party person
+		//If there are nemesis people around at the same place
+		if(personality = "Chill" and length(self getNemesisesAtLongStayPlace[nemesisOf::personality, place::LongStayPlace(target)]) > 0)
+		{
+			if(!isDisturbed)
+ 			{
+				write 'Chill: This freaking party person disturbs me in my sophisticated drinking habits!';
+				isDisturbed <- true;
+			}
+		}
+		//when there are no nemesis people around
+		else
+		{
+			if(isDisturbed)
+ 			{
+				write 'Chill: Finally, I got to enjoy my cuppa withour people talking about their morning crap!';
+				isDisturbed <- false;
+			}
+		}
 	}
+	
+	action beingAtConference
+	{
+		if(personality = "Scientist" or personality = "FlatEarther")
+		{
+			 if(length(self getNemesisesAtLongStayPlace[nemesisOf::personality, place::LongStayPlace(target)]) > 0)
+			 {
+			 	if(!isDisturbed)
+				{
+				 	if(personality = "Scientist")
+					{
+						write "Scientist: This complete nitwit is wasting my time, I'd rather talk to some dead moths!";
+					}
+					if(personality = "FlatEarther")
+					{
+						write "FlatEarther: Another sheep fooled by the lies of the government and believes in the religion of numbers!";
+					}
+					isDisturbed <- true;
+			 	}
+			}
+			else
+			{
+				if(isDisturbed)
+				{
+					if(personality = "Scientist")
+					{
+						write "Scientist: Finally, we can talk about science wihtout explaining elementary math!";
+					}
+					if(personality = "FlatEarther")
+					{
+						write "FlatEarther: Finally, we can have a discussion about real problems without the blind sheep!";
+					}
+					isDisturbed <- false;
+				}
+			}
+		}
+	}
+	
+	/*
+	 * Returns a list of Guests containing the nemesis of a given type around a given longstayplace
+	 * 
+	 */
+	 list<Guest> getNemesisesAtLongStayPlace(string nemesisOf, LongStayPlace place)
+	 {
+	 	string nemesis <- "";
+		if(personality = "Chill")
+		{
+			nemesis <- "Party";
+		}
+		else if(personality = "Scientist")
+		{
+			nemesis <- "FlatEarther";
+		}
+		else if(personality = "FlatEarther")
+		{
+			nemesis <- "Scientist";
+		}
+		//guests in the same place with nemesis personality
+		list<Guest> nemesises <- Guest.population where (each.personality = nemesis and each.target = place and each distance_to target <= longStayPlaceRadius + floatError);
+		return nemesises;
+		
+	 }
 	 
 	 float getNewHungerOrThirstValue
 	 {
 	 	return rnd(150.0) + 50;
 	 }
 	
+	action leaveLongStayPlace
+	{
+		targetOffset <- 0.0 :: 0.0;
+		target <- nil;
+		cyclesLeftToStay <- -1;
+		
+		isDisturbed <- false;
+	}
 	/* 
 	 * Guest arrives to info center
 	 * It is assumed the guests will only head to the info center when either thirsty or hungry
@@ -1293,7 +1390,7 @@ species ShowMaster
 	 			}
 	 		}
 	 	}
-	 	write name + " has calculated global utility: " + globalUtility;
+	 	//write name + " has calculated global utility: " + globalUtility;
 	}
 	
 	reflex conferenceOver when: length(Conference.population) = 0
