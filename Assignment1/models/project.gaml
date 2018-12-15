@@ -36,8 +36,6 @@ global
 	/*
 	 * Building configs
 	 */
-	int foodStoreNumber <- 0;// rnd(2,3);
-	int drinkStoreNumber <- 0;// rnd(2,3);
 	int approximateDetectionDistance <- 3;
 	point infoCenterLocation <- {50,50};
 	int barNumber <- rnd(3, 4);
@@ -147,23 +145,6 @@ global
 
 		}
 		
-				
-		/*
-		 * Number of stores is defined above 
-		 */
-		create FoodStore number: foodStoreNumber
-		{
-
-		}
-		
-		/*
-		 * Number of stores is defined above 
-		 */
-		create DrinkStore number: drinkStoreNumber
-		{
-
-		}
-		
 		/*
 		 * Number of bars is defined above
 		 */
@@ -206,6 +187,20 @@ global
 	
 }
 
+/*
+ * This covers most non-building agents.
+ * All humans have a set of common reflexes and actions, such as eating and wandering etc.
+ * 
+ * Also zombies use humans as their targets and every human can become a zombie, although they will remember what kind of a role they had before becoming a zombie
+ */
+species Human skills:[moving, fipa]
+{
+	// Default hunger vars
+	float thirst <- 0.0;
+	float hunger <- 0.0;
+	int hungerRate <- rnd(1, 3);
+	bool isConscious <- true;
+}
 
 /*
  * Max value for both thirst and hunger is 100
@@ -447,7 +442,7 @@ species Guest skills:[moving, fipa]
 	
 	/* 
 	 * Reduce thirst and hunger with a random value between 0 and 0.5
-	 * Once agent's thirst or hunger reaches below 50, they will head towards info/Store
+	 * Once agent's thirst or hunger reaches below 50, they will head towards info/bar
 	 */
 	reflex alwaysThirstyAlwaysHungry when: targetAuction = nil
 	{
@@ -546,10 +541,6 @@ species Guest skills:[moving, fipa]
 	 */
 	reflex reachedTargetExactly when: target != nil and location distance_to(target.location) = 0
 	{
-		if(Store.subspecies contains species(target))
-		{
-			do foodDrinkStoreReached;
-		}
 		if(LongStayPlace.subspecies contains species(target))
 		{
 			do longStayPlaceReached;
@@ -676,24 +667,6 @@ species Guest skills:[moving, fipa]
 		{
 			preferredItem <- wishList[rnd(length(wishList) - 1)];
 		}
-	}
-	
-	action foodDrinkStoreReached
-	{
-		string replenishString <- name;	
-		if(FoodStore = species(target))
-		{
-			hunger <- self getNewHungerOrThirstValue[];
-			replenishString <- replenishString + " ate food at " + target.name;
-		}
-		else if(DrinkStore = species(target))
-		{
-			thirst <- self getNewHungerOrThirstValue[];
-			replenishString <- replenishString + " had a drink at " + target.name;
-		}
-		
-		//write replenishString;
-		target <- nil;
 	}
 	
 	/*
@@ -1044,10 +1017,6 @@ species Building
 /* InfoCenter serves info with the ask function */
 species InfoCenter parent: Building
 {
-	// Get every store within 1000, should be enough	
-	list<FoodStore> foodStoreLocs <- (FoodStore at_distance 1000);
-	list<DrinkStore> drinkStoreLocs <- (DrinkStore at_distance 1000);
-	
 	// We only want to querry locations once
 	bool hasLocations <- false;
 	
@@ -1077,12 +1046,7 @@ species InfoCenter parent: Building
 			}
 		}
 	}
-}// InfoCenter end
-
-species Store parent: Building
-{
-	
-}
+}// InfoCenter en
 
 /*
  * Collection of buildings where the guests are supposed to stay for a while
@@ -1101,32 +1065,6 @@ species Bar parent: LongStayPlace
 	aspect default
 	{
 		draw pyramid(5) at: location color: #purple;
-	}
-}
-
-/* 
- * These stores replenish guests' hunger. The info center keeps a list of food stores.
- */
-species FoodStore parent: Store
-{
-	bool sellsFood <- true;
-	
-	aspect default
-	{
-		draw pyramid(5) at: location color: #green;
-	}
-}
-
-/* 
- * These stores replenish guests' thirst. The info center keeps a list of drink stores.
- */
-species DrinkStore parent: Store
-{
-	bool sellsDrink <- true;
-	
-	aspect default
-	{
-		draw pyramid(5) at: location color: #gold;
 	}
 }
 
@@ -1932,8 +1870,6 @@ experiment main type: gui
 		display map type: opengl
 		{
 			species Guest;
-			species FoodStore;
-			species DrinkStore;
 			species InfoCenter;
 			species Bar;
 			
