@@ -20,7 +20,7 @@ global
 	 * Guest configs
 	 */
 	//int guestNumber <- rnd(20)+20;
-	int guestNumber <- 15;
+	int guestNumber <- 30;
 	float guestSpeed <- 0.5;
 	
 	// the rate at which guests grow hungry / thirsty
@@ -30,6 +30,9 @@ global
 	int globalHungerRate <- -1;
 	//they will start looking for food under this value
 	int gettingHungry <- 30;
+	
+	//the global rate at which happiness will be decreased
+	float globalHappinessRate <- 0.05;
 	
 	list<string> guestPersonalitiesEnum <- ["Party", "Chill", "Scientist", "FlatEarther"];
 	
@@ -130,6 +133,8 @@ global
 	float floatError <- 0.0001;
 	int maxNumberOfCyclesAtPlace <- 200;
 	int minNumberOfCyclesAtPlace <- 100;
+	//under this value, the guests will be disturbed by their nemesis
+	float feelingFineValue <- 40.0;
 	
 	init
 	{
@@ -233,6 +238,8 @@ species Guest skills:[moving, fipa]
 	int hungerRate <- rnd(1, 3);
 	bool isConscious <- true;
 	
+	float happiness <- 0.0;
+	
 	// Default color of guests
 	rgb color <- #red;
 	
@@ -325,6 +332,7 @@ species Guest skills:[moving, fipa]
 	{
 		hunger <- self getNewHungerOrThirstValue[];
 		thirst <- self getNewHungerOrThirstValue[];
+		happiness <- 100.0;
 		
 		if(globalHungerRate != -1)
 		{
@@ -442,6 +450,14 @@ species Guest skills:[moving, fipa]
 					stageUtilityPairs >- stgUt.key;
 				}
 			}
+		}
+	}
+	
+	reflex lifeMakesMeSoSad
+	{
+		if(happiness >= 0.0)
+		{
+			happiness <- happiness - globalHappinessRate;
 		}
 	}
 	
@@ -735,19 +751,30 @@ species Guest skills:[moving, fipa]
 		if(hunger <= gettingHungry)
 		{
 			hunger <- self getNewHungerOrThirstValue[];
+			happiness <- happiness + 20;
 		}
 		if(thirst <= gettingHungry)
 		{
 			thirst <- self getNewHungerOrThirstValue[];
+			happiness <- happiness + 20;
 		}
 		
 		//Implementation of a chill person meeting with a party person
 		//If there are nemesis people around at the same place
 		if(personality = "Chill" and length(self getNemesisesAtLongStayPlace[nemesisOf::personality, place::LongStayPlace(target)]) > 0)
 		{
+			//this is to only write it once per bar session
 			if(!isDisturbed)
  			{
-				write 'Chill: This freaking party person disturbs me in my sophisticated drinking habits!';
+ 				//if happiness is low, it disturbs the chill person, otherwise he is fine with it
+ 				if(happiness < feelingFineValue)
+ 				{
+					write 'Chill person, ' + name + ': This freaking party person disturbs me in my sophisticated drinking habits! (at: ' + target + ')';
+				}
+				else
+				{
+					write "Chill person, " + name + ": This party person is a bit annoying but I feel to good to care about it! (at: " + target + ")";
+				}
 				isDisturbed <- true;
 			}
 		}
@@ -756,8 +783,9 @@ species Guest skills:[moving, fipa]
 		{
 			if(isDisturbed)
  			{
-				write 'Chill: Finally, I got to enjoy my cuppa withour people talking about their morning crap!';
+				write 'Chill person, ' + name + ': Finally, I got to enjoy my cuppa withour people talking about their morning crap!(at: ' + target + ")" ;
 				isDisturbed <- false;
+				happiness <- happiness + 10;
 			}
 		}
 	}
@@ -766,17 +794,33 @@ species Guest skills:[moving, fipa]
 	{
 		if(personality = "Scientist" or personality = "FlatEarther")
 		{
+			//if there are nemesis people around at the place
 			 if(length(self getNemesisesAtLongStayPlace[nemesisOf::personality, place::LongStayPlace(target)]) > 0)
 			 {
+				//this is to only write it once per bar session
 			 	if(!isDisturbed)
 				{
 				 	if(personality = "Scientist")
 					{
-						write "Scientist: This complete nitwit is wasting my time, I'd rather talk to some dead moths!";
+						if(hunger < feelingFineValue or thirst < feelingFineValue or happiness < feelingFineValue)
+						{
+							write "Scientist person, " + name + ": This complete nitwit is wasting my time, I'd rather talk to some dead moths!(at: " + target + ")";
+						}
+						else
+						{
+							write "Scientist person, " + name + ": I'm in a good mood, I can talk about fake news and the donut-shaped-Earth theory!(at: " + target + ")";
+						}
 					}
 					if(personality = "FlatEarther")
 					{
-						write "FlatEarther: Another sheep fooled by the lies of the government and believes in the religion of numbers!";
+						if(hunger < feelingFineValue or thirst < feelingFineValue or happiness < feelingFineValue)
+						{
+							write "FlatEarther dude, " + name + ": Another sheep fooled by the lies of the government and believes in the religion of numbers!(at: " + target + ")";
+						}
+						else
+						{
+							write "FlatEarther dude, " + name + ": I can pretend to have positive IQ, I'm in a good mood!(at: " + target + ")";
+						}
 					}
 					isDisturbed <- true;
 			 	}
@@ -788,10 +832,12 @@ species Guest skills:[moving, fipa]
 					if(personality = "Scientist")
 					{
 						write "Scientist: Finally, we can talk about science wihtout explaining elementary math!";
+						happiness <- happiness + 10;
 					}
 					if(personality = "FlatEarther")
 					{
 						write "FlatEarther: Finally, we can have a discussion about real problems without the blind sheep!";
+						happiness <- happiness + 10;
 					}
 					isDisturbed <- false;
 				}
@@ -915,6 +961,7 @@ species Guest skills:[moving, fipa]
 		}
 		else if(requestFromInitiator.contents[0] = 'Winner')
 		{
+			happiness <- happiness + 80;
 			write name + ' won the auction for ' + preferredItem;
 			wishList >- preferredItem;
 			do pickNewPreferredItem;
@@ -993,6 +1040,7 @@ species Guest skills:[moving, fipa]
 	
 	action stageReached
 	{
+		happiness <- happiness + 1;
 		target <- nil;
 	}
 	
@@ -1016,7 +1064,8 @@ species Guest skills:[moving, fipa]
 
 		if(requestFromInitiator.contents[0] = 'conference start')
 		{
-			
+			//everyone loves some intellectual talks, makes people happy
+			happiness <- happiness + 20;
 		}
 		else if(requestFromInitiator.contents[0] = "you're in!")
 		{
@@ -1777,7 +1826,7 @@ species Stage parent: Building
 
 species Conference skills: [fipa] parent: LongStayPlace
 {
-	int maxParticipants <- 3;
+	int maxParticipants <- 6;
 	
 	//number of guests who replied
 	int replyCounter <- 0;
