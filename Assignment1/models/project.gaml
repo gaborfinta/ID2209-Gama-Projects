@@ -5,7 +5,6 @@
 * 
 * TODO:
 	debug conferences (Gábor)
-	debug stages (Ville)
 	add new type of guest (Ville)
 	 	parent for all non-building species (Ville)
 		also how do agents interact with each other? (3 attributes)
@@ -16,6 +15,17 @@
 model NewModel
 global 
 {
+	/*
+	 * Agent colors
+	 */
+	 rgb guestColor <- #red;
+	 rgb unconsciousColor <- #yellow;
+	 rgb zombieColor <- #lime;
+	 rgb securityColor <- #black;
+	 rgb ambulanceColor <- #teal;
+	 rgb barColor <- #purple;
+	 rgb infoCenterColor <- #blue;
+	 
 	/*
 	 * Guest configs
 	 */
@@ -122,6 +132,19 @@ global
 	// The number of ambulances is propotionate to the amount of guests
 	int ambulanceNumber <- max([1, round(guestNumber / 4)]);
 	
+	// A list of all humans for convenience
+	list<Human> allHumans;
+	// A list used to keep track of zombies
+	list<Human> zombies;
+	
+	// Zombie config
+	// chance of guest being created a zombie
+	float zombieChance <- 0.3;
+	// Chance of security winning a fight, if lose they get bitten and become zombie
+	float securityFightSuccessFactor <- 0.7;
+	// chance of a zombie winning a fight, if they lose they pass out
+	float zombieFightSuccessFactor <- 0.7;
+	
 	//Everything happens only once per day
 	int currDay <- 0;
 	int cyclesPerDay <- 3000;
@@ -135,7 +158,7 @@ global
 	float feelingFineValue <- 40.0;
 	
 	init
-	{
+	{	
 		/*
 		 * Number of auctioners is defined above 
 		 */
@@ -168,7 +191,7 @@ global
 		}
 			
 		/* Create security */
-		create Security number: 1
+		create Security number: ambulanceNumber
 		{
 
 		}
@@ -184,6 +207,14 @@ global
 		{
 			
 		}
+		
+		//		// This returns all humans, essentially
+//	    list<Human> getAllHumans
+//	    {
+//	    	return Guest.population + Ambulance.population + Security.population;
+//	    }
+		allHumans <- Guest.population + Ambulance.population + Security.population;
+		write allHumans;
 	}
 	reflex currDay when: time != 0 and mod(time, cyclesPerDay) = 0
 	{
@@ -196,70 +227,315 @@ global
  * This covers most non-building agents.
  * All humans have a set of common reflexes and actions, such as eating and wandering etc.
  * 
+ * Common functions for all humans:
+ * hunger / thirst (ambulances and security hunger rate is 0 for now)
+ * going to target building/human
+ * 
+ * being a zombie
+ * 
  * Also zombies use humans as their targets and every human can become a zombie, although they will remember what kind of a role they had before becoming a zombie
  */
-species Human skills:[moving, fipa]
+species Human skills:[moving]
 {
 	// Default hunger vars
-	float thirst <- 0.0;
 	float hunger <- 0.0;
 	int hungerRate <- rnd(1, 3);
+	// even though all humans grow hungry right now, ambulances and security have a *0 modifier
+	// they will start growing hungry if zombies
+	int hungerModifier <- 1;
+	
+	// Guests can fall unconscious after their thirst/hunger falls to zero, or the security knocks them unconscious
 	bool isConscious <- true;
+	
+	// White models against a white background -> a lazy way of making the default color mostly invisible
+	rgb myColor <- #gray;
+	rgb originalColor <- #gray;
+	
+	bool isZombie <- false;
+	
+	// This is used when guests stay at longStayPlaces
+	pair<float, float> targetOffset <- 0.0 :: 0.0;
+	// Default speed of all humans is guestSpeed
+	float mySpeed <- guestSpeed;
+	float originalSpeed <- guestSpeed;
+	
+	// A human may have a target of any species, used when moving
+	agent target;
+	
+	// If this is a wandering kind of human. Ambulances aren't.
+	// two variables for zombification - zombified ambulances wander, normal ones don't
+	// we want to be able to back to the original state (same as original speed/color)
+	bool wanderer <- true;
+	bool wander <- true;
+	
+	// Used by security and zombies to pause securitying or zombieing while auctions are running
+	bool auctionsRunning <- false;
+	
+	aspect default
+	{
+		draw sphere(2) at: location color: myColor;
+	}
+	
+// Human reflexes
+	
+	/* 
+	 * When agent has target, move towards target
+	 * note: unconscious guests can still move, just to enable them moving to the hospital
+	 */
+	reflex moveToTarget when: target != nil
+	{
+		do goto target:{target.location.x + targetOffset.key, target.location.y + targetOffset.value} speed: mySpeed;
+	}
+	
+	/*
+	 * humans grow hungry over time
+	 * hungerModifier is set to 1 with guests and 0 with security and agents
+	 * for zombies it will be higher
+	 */
+	reflex growHunger
+	{
+		hunger <- hunger - rnd(hungerRate) * 0.1 * hungerModifier;
+	}
+
+	/*
+	 * it is a universal human quality to wander when they have nothing else to do
+	 */	
+	reflex wanderRandomly when: target = nil and isConscious and wander
+	{
+		do wander;
+	}
+	
+	/*
+	 * When zombies are hungry they will chase the nearest non-zombie human and fight them.
+	 * Zombies have a 10% chance of losing and falling unconscious.
+	 * Unconscious zombies don't pick targets
+	 */
+	reflex beZombie when: isZombie and hunger < gettingHungry and target = nil and isConscious
+	{
+		//If auctions are running, don't zombie
+		ask one_of(ShowMaster)
+		{
+			if(auctionsRunning)
+			{
+				myself.auctionsRunning <- true;
+			}
+			else
+			{
+				myself.auctionsRunning <- false;
+			}
+		}
+		
+		// If auctions are running, we're not gonna do anything here
+		// you can't interrupt the march of capitalism
+		if(!auctionsRunning)
+		{
+			list<Human> tempAllHumans <- allHumans;
+			Human targetHuman <- nil;
+			// pick a random human
+			loop while: (target = nil and length(tempAllHumans) > 0)
+			{
+				targetHuman <- one_of(tempAllHumans);
+				if(!targetHuman.isZombie)
+				{
+					target <- targetHuman;
+				}
+				else
+				{
+					tempAllHumans >- targetHuman;
+				}
+			}
+		}		
+	}
+	
+	/*
+	 * TODO: document
+	 */
+ 	reflex fight when: target != nil and contains(allHumans, target) and location distance_to(target.location) < 0.2
+	{
+		string fightString <- name + " fought " + target + " and ";
+		// Zombies use zombieFightSuccessFactor
+		if(isZombie)
+		{
+			// If zombie wins, target becomes zombie
+			if(flip(zombieFightSuccessFactor))
+			{
+				ask Human(target)
+				{
+					do becomeZombie;
+				}
+				fightString <- fightString + "took a bite out of them!";
+				hunger <- getNewHungerValue();
+			}
+			// If zombie loses, zombie passes out
+			else
+			{
+				do perish;
+				fightString <- fightString + "lost terribly.";
+			}
+		}
+		// non-zombies use securityFightSuccessFactor
+		else
+		{
+			// If security wins, target passes out
+			if(flip(securityFightSuccessFactor))
+			{
+				// cast to human here because target could technically also be a building and those don't have the perish action
+				ask Human(target)
+				{
+					do perish;
+				}
+				fightString <- fightString + "won!";
+			}
+			// If security loses, they become zombie
+			else
+			{
+				do becomeZombie;
+				fightString <- fightString + "got bitten!";
+			}
+		}
+/*		
+		if(flip(0.9))
+		{
+			// If we're a zombie, we ask the target to also become a zombie
+			// Otherwise we ask the target to become unconscious
+			if(isZombie)
+			{
+				ask Human(target)
+				{
+					do becomeZombie;
+				}
+				fightString <- fightString + "took a bite out of them!";
+				hunger <- getNewHungerValue();
+			}
+			else
+			{
+				// cast to human here because target could technically also be a building and those don't have the perish action
+				ask Human(target)
+				{
+					do perish;
+					fightString <- fightString + "won";
+				}	
+			}
+		}
+		else
+		{
+			if(Human(target).isZombie)
+			{
+				fightString <- fightString + "got bitten!";
+				ask Human(target)
+				{
+					hunger <- getNewHungerValue();
+				}
+				do becomeZombie;
+			}
+			else
+			{
+				fightString <- fightString + "lost";
+				do perish;	
+			}
+		}
+*/
+		target <- nil;
+		write fightString;
+	}
+
+// Human actions
+	
+	 /*
+	  * Returns a random float between 50-200
+	  * Used for resetting hunger and thirst
+	  */
+	 float getNewHungerValue
+	 {
+	 	return rnd(150.0) + 50;
+	 }
+	
+	/*
+	 * When falling unconscious, most things are reset
+	 */
+	action perish
+	{
+		isConscious <- false;
+		myColor <- unconsciousColor;
+		target <- nil;
+		targetOffset <- 0.0 :: 0.0;
+	}
+	
+	/*
+	 * When waking up, some things are reset again
+	 * Also human waking up is removed from hospital's unconsciousHumans list
+	 */
+	 action getRevived
+	 {
+	 	myColor <- originalColor;
+	 	hunger <- getNewHungerValue();
+	 	isConscious <- true;
+	 	target <- nil;
+	 	
+	 	if(isZombie)
+	 	{
+	 		do unBecomeZombie;
+	 	}
+	 }
+	
+	/*
+	 * When a human gets zombified
+	 * set isZombie to true, change color and increase hungerModifier
+	 */
+	action becomeZombie
+	{
+		isZombie <- true;
+		if(isConscious)
+		{
+			myColor <- zombieColor;	
+		}
+		mySpeed <- guestSpeed;
+		hungerModifier <- 2;
+		hunger <- getNewHungerValue();
+		target <- nil;
+		zombies <+ self;
+		wander <- true;
+	}
+	
+	/*
+	 * Reverse the above process of zombification
+	 */
+	 action unBecomeZombie
+	 {
+	 	isZombie <- false;
+	 	myColor <- originalColor;
+	 	mySpeed <- originalSpeed;
+	 	hungerModifier <- 1;
+	 	target <- nil;
+	 	zombies >- self;
+	 	wander <- wanderer;
+	 }	
 }
 
-/*
- * Max value for both thirst and hunger is 100
- * Guests enter with a random value for both between 50 and 100
- * 
- * Each guest gets an id number, which is simply a random number between 1000 and 10 000,
- * technically two guests could have the same id, but given the small number of guests that's unlikely
- * 
- * Guests will wander about until they get either thirsty or hungry, at which point they will start heading towards the info center
+/* 
+ * The guests are the oridinary guests to the festival. They participate in auctions, go to stages and to conferences.
  * 
  * Each guest has a random preferred price for merch
  * They will reject offers until their preferred price is reached,
  * upon which moment they accept and buy the merch
- * 
- * Guests have a 5% chance of being created as zombies (previously isBad)
- * zombies can infect nearby guests
- * zombies have a high utility for larger crowds
- * zombies ignore the utility for music, except for techno music
  */
-species Guest skills:[moving, fipa]
-{
-	// Default hunger vars
-	float thirst <- 0.0;
-	float hunger <- 0.0;
-	int hungerRate <- rnd(1, 3);
-	bool isConscious <- true;
-	
+species Guest skills:[moving, fipa] parent: Human
+{	
 	float happiness <- 0.0;
-	
-	// Default color of guests
-	rgb color <- #red;
-	
 	// This is the price at which the guest will buy merch, set in the configs above
 	int guestMaxAcceptedPrice <- rnd(guestAcceptedPriceMin,guestAcceptedPriceMax);
 	
 	// List of remembered buildings
 	list<Building> guestBrain;
-	// Target to move towards
-	Building target <- nil;
-	//x and y offset of the target
-	pair<float, float> targetOffset <- 0.0 :: 0.0;
 
 	// Which auction is guest participating in
 	Auctioner targetAuction;
-	
-	/* Bad apples are colored differently */
-	// Some guests are bad apples and are colored differently
-	// They will be removed by the security
-	bool isBad <- flip(0.2);
 	
 	// Each guest prefers a random item out of the items they do not have
 	//it is set in init
 	string preferredItem <- [];
 	// A list of all the items the guest does not have
+	// The list becomes shorter as guests acquire items
 	list<string> wishList <- ["branded backpacks","signed shirts","heavenly hats", "posh pants"];
 	
 	// Each guest as a set of weights for stages
@@ -276,15 +552,10 @@ species Guest skills:[moving, fipa]
 	// If crowd size exceeds crowdSize, multiply by bias
 	int preferenceStageCrowdSize <- rnd(1,guestNumber);
 	float preferenceStageCrowdSizeBias <- rnd(0.0,1.0);
-	//list<float> stageUtilities <- [];
 	// Each guest keeps track of their utility for each stage
-	map stageUtilityPairs;// <- [0::"example", 1::"kakka"];
-	ShowMaster showMaster <- one_of(ShowMaster);
-	Stage targetStage <- nil;
+	map stageUtilityPairs;
 	float highestUtility <- 0.0;
-	float currentUtility <- 0.0;
-	int highestUtilityIndex;
-	bool unsatisfied <- false;
+	Stage targetStage <- nil;
 	
 	//LongStayPlaceConfigs
 	int cyclesLeftToStay <- -1;
@@ -294,12 +565,9 @@ species Guest skills:[moving, fipa]
 	bool isDisturbed <- false;
 	
 	aspect default
-	{
-		if(isBad) {
-			color <- #darkred;
-		}
-		draw sphere(2) at: location color: color;
-
+	{		
+		draw sphere(2) at: location color: myColor;
+		
 		if(!contains(wishList, "branded backpacks"))
 		{
 			//point backPackLocation <- location + point([2.1, 0.0, 2.0]);
@@ -325,9 +593,8 @@ species Guest skills:[moving, fipa]
 	
 	init
 	{
-		hunger <- self getNewHungerOrThirstValue[];
-		thirst <- self getNewHungerOrThirstValue[];
 		happiness <- 100.0;
+		hunger <- self getNewHungerValue[];
 		
 		if(globalHungerRate != -1)
 		{
@@ -338,45 +605,34 @@ species Guest skills:[moving, fipa]
 		{
 			preferredItem <- itemsAvailable[rnd(length(itemsAvailable) - 1)];	
 		}
+		
+		myColor <- guestColor;
+		originalColor <- guestColor;
+		
+		// Guests have a zombieChance chance of being created as zombies (defined above)
+		if(flip(zombieChance))
+		{
+			do becomeZombie;
+		}
 	}
 		
 	/*
 	 * This might come up with stages, but not otherwise
+	 * If target is dead, remove it from stageUtilityPairs and set target & targetStage to nil
 	 */
 	reflex isTargetAlive when: target != nil
 	{
 		if(dead(target))
 		{
 			target <- nil;
+			stageUtilityPairs >- targetStage;
 			targetStage <- nil;
 		}
 	}
 	
 	/*
-	 * Guests will continuously evaluate their utilities for the stages
-	 * 
-	 * Stages have the following attributes:
-	 * int stageLights
-	 * int stageMusic
-	 * int stageShow
-	 * int stageFashionability
-	 * int stageDanceability
-	 * string stageGenre
-	 * list<Guest> crowdAtStage
-	 * 
-	 * Guests have the following attributes:
-	 * float preferenceStageLights
-	 * float preferenceStageMusic
-	 * float preferenceStageShow
-	 * float preferenceStageFashionability
-	 * float preferenceStageDanceability
-	 * 
-	 * the guest's preferred genre and how strongly they prefer it
-	 * string preferenceStageGenre
-	 * float preferenceStageGenreBias
-	 * 
-	 * The max size of the crowd the guest is willing to tolerate and how strongly they prefer this
-	 * int preferenceStageCrowdSize
+	 * Guests will continuously evaluate their utilities for the stages as long as they exist
+	 * If no stages exist, targetStage and stageUtilityPairs are emptied
 	 */
 	reflex calculateUtilities
 	{	
@@ -392,8 +648,18 @@ species Guest skills:[moving, fipa]
 								stg.stageShow * preferenceStageFashionability +
 								stg.stageShow * preferenceStageDanceability;
 				
+				// Zombies prefer techno music with a bias of 1000
+				if(isZombie)
+				{
+					if(stg.stageGenre = "trashy techno" or
+						stg.stageGenre = "traditional Russian song techno remixes" or
+						stg.stageGenre = "Sandstorm")
+					{
+						utility <- utility * 1000;
+					}
+				}
 				// If stage genre and guest's preference match, multily by bias (which is 1 + (0.0 to 0.9))				
-				if(stg.stageGenre = preferenceStageGenre)
+				else if(stg.stageGenre = preferenceStageGenre)
 				{
 					utility <- utility * preferenceStageGenreBias;
 				}
@@ -457,77 +723,36 @@ species Guest skills:[moving, fipa]
 	}
 	
 	/* 
-	 * Reduce thirst and hunger with a random value between 0 and 0.5
-	 * Once agent's thirst or hunger reaches below 50, they will head towards info/bar
+	 * Once guest's hunger reaches below gettingHungry (30), they will head towards info/bar
 	 */
-	reflex alwaysThirstyAlwaysHungry when: targetAuction = nil
-	{
-		/* Reduce thirst and hunger */
-		thirst <- thirst - rnd(hungerRate)*0.1;
-		hunger <- hunger - rnd(hungerRate)*0.1;
-		
-		/* 
-		 * If agent has no target and either thirst or hunger is less than 50
-		 * then either head to info center, or directly to store
-		 * 
-		 * Once agent visits info center,
-		 * the store they're given will be added to guestBrain,
-		 * which is a list of stores.
-		 * 
-		 * The next time the agent is thirsty / hungry,
-		 * agent then has 50% chance of either drawing an appropriate store from memory,
-		 * or heading to info center as usual.
-		 * 
-		 * Only conscious agents will react to their thirst/hunger 
-		 */
-		if(target = nil and (thirst < gettingHungry or hunger < gettingHungry) and isConscious)
+	reflex alwaysThirstyAlwaysHungry when: targetAuction = nil and !isZombie
+	{	
+		if(target = nil and hunger < gettingHungry and isConscious)
 		{	
-			string destinationMessage <- name; 
-
-			/*
-			 * Is agent thirsty, hungry or both.
-			 * Guests will prefer drink over food
-			 */
-			if(thirst < gettingHungry and hunger < gettingHungry)
-			{
-				destinationMessage <- destinationMessage + " is thirsty and hungry,";
-			}
-			else if(thirst < gettingHungry)
-			{
-				destinationMessage <- destinationMessage + " is thirsty,";
-			}
-			else if(hunger < gettingHungry)
-			{
-				destinationMessage <- destinationMessage + " is hungry,";
-			}
-			
-			// Guest has 50% chance of using brain or asking from infocenter
-			bool useBrain <- flip(0.5);
-			
 			// Only use brain if the guest has locations saved in brain
-			if(length(guestBrain) > 0 and useBrain = true)
+			// 50% to either use brain or head to info center
+			if(length(guestBrain) > 0 and flip(0.5))
 			{
 				target <- one_of(guestBrain);
-				destinationMessage <- destinationMessage + " (brain used)";
 			}
 
-			// If no valid store was found in the brain, head to info center
+			// If no valid store was found in the brain or flip was false, head to info center
 			if(target = nil)
 			{
 				target <- one_of(InfoCenter);	
 			}
 			
-			destinationMessage <- destinationMessage + " heading to " + target.name;
-			//write destinationMessage;
+			//write name + " is hungry, heading to " + target;
 		}
 	}
 
 	/* 
 	 * If everything is ok with the guest, they will set their target stage as their target
-	 * if they have nothing else to do, guests will wander
 	 */
-	reflex gotoStageOrBeIdle when: target = nil and isConscious
+	reflex gotoStage when: target = nil and isConscious
 	{
+		
+		// This is probably redundant
 		if(targetStage != nil and dead(targetStage))
 		{
 			targetStage <- nil;
@@ -536,15 +761,6 @@ species Guest skills:[moving, fipa]
 		{
 			target <- targetStage;
 		}
-	}
-
-	/* 
-	 * When agent has target, move towards target
-	 * note: unconscious guests can still move, just to enable them moving to the hospital
-	 */
-	reflex moveToTarget when: target != nil
-	{
-		do goto target:{target.location.x + targetOffset.key, target.location.y + targetOffset.value} speed: guestSpeed;
 	}
 	
 	/*
@@ -616,11 +832,6 @@ species Guest skills:[moving, fipa]
 		
 	}
 	
-	reflex wanderRandomly when: target = nil and isConscious
-	{
-		do wander;
-	}
-	
 	/*
 	 * Guest is at a place where want to stay for a while
 	 * The long condition ensures that it can be either at the circumference of the stay but also between the center and the circumference
@@ -649,25 +860,9 @@ species Guest skills:[moving, fipa]
 	 * if a guest's thirst or hunger <= 0, then the guest faints
 	 * only conscious guests can faint
 	 */
-	reflex thenPerish when: (thirst <= 0 or hunger <= 0) and isConscious
+	reflex thenPerish when: (hunger <= 0) and isConscious and !isZombie
 	{
-		string perishMessage <- name + " fainted";
-		
-		if(thirst <= 0)
-		{
-			perishMessage <- perishMessage + " of thirst.";
-		}
-		else if(hunger <= 0)
-		{
-			perishMessage <- perishMessage + " of hunger.";
-		}
-		
-		//write perishMessage;
-		isConscious <- false;
-		color <- #yellow;
-		target <- nil;
-		targetOffset <- 0.0 :: 0.0;
-		
+		do perish;
 	}
 	
 	//Guest actions begin
@@ -723,12 +918,7 @@ species Guest skills:[moving, fipa]
 	{
 		if(hunger <= gettingHungry)
 		{
-			hunger <- self getNewHungerOrThirstValue[];
-			happiness <- happiness + 20;
-		}
-		if(thirst <= gettingHungry)
-		{
-			thirst <- self getNewHungerOrThirstValue[];
+			hunger <- self getNewHungerValue[];
 			happiness <- happiness + 20;
 		}
 		
@@ -757,6 +947,7 @@ species Guest skills:[moving, fipa]
 			if(isDisturbed)
  			{
 				write 'Chill person, ' + name + ': Finally, I got to enjoy my cuppa withour people talking about their morning crap!(at: ' + target + ")" ;
+
 				isDisturbed <- false;
 				happiness <- happiness + 10;
 			}
@@ -775,7 +966,7 @@ species Guest skills:[moving, fipa]
 				{
 				 	if(personality = "Scientist")
 					{
-						if(hunger < feelingFineValue or thirst < feelingFineValue or happiness < feelingFineValue)
+						if(hunger < feelingFineValue or happiness < feelingFineValue)
 						{
 							write "Scientist person, " + name + ": This complete nitwit is wasting my time, I'd rather talk to some dead moths!(at: " + target + ")";
 						}
@@ -786,7 +977,7 @@ species Guest skills:[moving, fipa]
 					}
 					if(personality = "FlatEarther")
 					{
-						if(hunger < feelingFineValue or thirst < feelingFineValue or happiness < feelingFineValue)
+						if(hunger < feelingFineValue or happiness < feelingFineValue)
 						{
 							write "FlatEarther dude, " + name + ": Another sheep fooled by the lies of the government and believes in the religion of numbers!(at: " + target + ")";
 						}
@@ -839,15 +1030,13 @@ species Guest skills:[moving, fipa]
 		}
 		//guests in the same place with nemesis personality
 		list<Guest> nemesises <- Guest.population where (each.personality = nemesis and each.target = place and each distance_to target <= longStayPlaceRadius + floatError);
-		return nemesises;
 		
-	 }
-	 
-	 float getNewHungerOrThirstValue
-	 {
-	 	return rnd(150.0) + 50;
+		return nemesises;
 	 }
 	
+	/*
+	 * TODO: document
+	 */
 	action leaveLongStayPlace
 	{
 		targetOffset <- 0.0 :: 0.0;
@@ -857,28 +1046,16 @@ species Guest skills:[moving, fipa]
 		isDisturbed <- false;
 	}
 	/* 
-	 * Guest arrives to info center
-	 * It is assumed the guests will only head to the info center when either thirsty or hungry
-	 * 
-	 * The guests will prioritize the attribute that is lower for them,
-	 * if tied then thirst goes first.
-	 * This might be different than the reason they decided to head to the info center originally.
-	 * 
-	 * If the guest's brain has space, it will add the store's information to its brain
-	 * This could be the same store it already knows, but the guests are not very smart
+	 * Guest arrives to info center and pick a random bar to go to.
+	 * If the bar is not already in brain, it will be added to brain so the guest can go there later too
 	 */
 	action infoCenterReached
 	{
-		string destinationString <- name  + " on its way for "; 
 		target <- nil;
-		ask InfoCenter at_distance 0
+		target <- one_of(Bar);
+		if(!(guestBrain contains target))
 		{
-			myself.target <- one_of(Bar);
-			if(!(myself.guestBrain contains myself.target))
-			{
-				myself.guestBrain <+ myself.target;
-				destinationString <- destinationString + "(added to brain) ";
-			}
+			guestBrain <+ Building(target);
 		}
 	}
 	
@@ -954,24 +1131,30 @@ species Guest skills:[moving, fipa]
 	 */
 	action joinAuction
 	{
-		hunger <- 100.0;
-		thirst <- 100.0;
+		hunger <- getNewHungerValue();
 		isConscious <- true;
-		color <- #red;
+		if(!isZombie)
+		{
+			myColor <- guestColor;	
+		}
+		else
+		{
+			myColor <- zombieColor;
+		}
 		
 		// Free any ambulance from getting this guest
 		ask Ambulance
 		{
-			if(targetGuest = myself)
+			if(targetHuman = myself)
 			{
-				targetGuest <- nil;
+				targetHuman <- nil;
 				deliveringGuest <- false;
 			}
 		}
 		// Also remove this guest from the hospital's lists
 		ask Hospital
 		{
-			unconsciousGuests >- myself;
+			unconsciousHumans >- myself;
 			underTreatment >- myself;
 		}
 		
@@ -1060,42 +1243,23 @@ species Guest skills:[moving, fipa]
  */
 species Building
 {
-	
-}
-
-/* InfoCenter serves info with the ask function */
-species InfoCenter parent: Building
-{
-	// We only want to querry locations once
-	bool hasLocations <- false;
-	
+	// Placeholder color
+	rgb myColor <- #gray;
 	aspect default
 	{
-		draw cube(5) at: location color: #blue;
+		draw cube(5) at: location color: myColor;
 	}
+}
 
-	/*
-	 * TODO: document
-	 */
-	reflex checkForBadGuest
+// Infocenter sits at the center of the area, guests sometimes visit it when hungry, but it has no functions
+species InfoCenter parent: Building
+{
+	init
 	{
-		ask Guest at_distance 0
-		{
-			if(self.isBad)
-			{
-				Guest badGuest <- self;
-				ask Security
-				{
-					if(!(self.targets contains badGuest))
-					{
-						self.targets <+ badGuest;	
-					}
-				}
-				//write name + " to Robocop's list";
-			}
-		}
+		myColor <- infoCenterColor;
 	}
-}// InfoCenter en
+	
+}// InfoCenter end
 
 /*
  * Collection of buildings where the guests are supposed to stay for a while
@@ -1111,35 +1275,33 @@ species LongStayPlace parent: Building
 */
 species Bar parent: LongStayPlace
 {
-	aspect default
-	{
-		draw pyramid(5) at: location color: #purple;
-	}
+	rgb myColor <- barColor; 
 }
 
 /*
  * TODO: document
+ * TODO: stop hospital from dispatching zombified ambulances
  */
 species Hospital parent: Building
 {	
-	aspect default
+	init
 	{
-		draw cube(5) at: location color: #teal;
+		myColor <- ambulanceColor;
 	}
 	
-	list<Guest> unconsciousGuests <- [];
-	list<Guest> underTreatment <- [];
+	list<Human> unconsciousHumans <- [];
+	list<Human> underTreatment <- [];
 	
 	reflex checkForUnconsciousGuest
 	{
-		ask Guest
+		ask allHumans
 		{
 			if(isConscious = false)
 			{
-				if(!(myself.unconsciousGuests contains self) and !(myself.underTreatment contains self))
+				if(!(myself.unconsciousHumans contains self) and !(myself.underTreatment contains self))
 				{
-					myself.unconsciousGuests <+ self;
-					//write name + "added to unconsciousGuests";
+					myself.unconsciousHumans <+ self;
+					//write name + "added to unconsciousHumans";
 				}
 			}
 		}
@@ -1147,25 +1309,25 @@ species Hospital parent: Building
 	
 	/*
 	 * Whenever there is an ambulance nearby and it has no target,
-	 * give it a target from unconsciousGuests
+	 * give it a target from unconsciousHumans
 	 * 
-	 * remove from unconsciousGuests, add to underTreatment
+	 * remove from unconsciousHumans, add to underTreatment
 	 * this is so that the unconscious guest doesn't get re-added to the list,
 	 * while the ambulance is on its way
 	 */
-	reflex dispatchAmbulance when: length(unconsciousGuests) > length(underTreatment)
+	reflex dispatchAmbulance when: length(unconsciousHumans) > length(underTreatment)
 	{
 		ask Ambulance at_distance 0
 		{
-			if(targetGuest = nil)
+			if(targetHuman = nil and isConscious and !isZombie)
 			{
-				loop tg from: 0 to: length(myself.unconsciousGuests) - 1
+				loop tg from: 0 to: length(myself.unconsciousHumans) - 1
 				{
-					if(myself.unconsciousGuests[tg].isConscious = false and !(myself.underTreatment contains myself.unconsciousGuests[tg]))
+					if(myself.unconsciousHumans[tg].isConscious = false and !(myself.underTreatment contains myself.unconsciousHumans[tg]))
 					{
-						targetGuest <- myself.unconsciousGuests[tg];
-						write name + " dispatched for " + myself.unconsciousGuests[tg].name; 
-						myself.underTreatment <+ myself.unconsciousGuests[tg];
+						targetHuman <- myself.unconsciousHumans[tg];
+						write name + " dispatched for " + myself.unconsciousHumans[tg].name; 
+						myself.underTreatment <+ myself.unconsciousHumans[tg];
 						break;
 					}
 				}
@@ -1175,38 +1337,46 @@ species Hospital parent: Building
 	
 	/*
 	 * TODO: document
+	 * TODO: right now this has a dumb structure, do better if time / energy
 	 */
-	reflex reviveGuest when: length(underTreatment) > 0
+	reflex reviveHumansAtHospital when: length(underTreatment) > 0
 	{
-		ask Guest at_distance 0
+		ask allHumans at_distance 0
 		{
 			if(myself.underTreatment contains self)
 			{
-				if(isBad)
-				{
-					color <- #darkred;	
-				}
-				else
-				{
-					color <- #red;	
-				}
-				hunger <- 100.0;
-				thirst <- 100.0;
-				isConscious <- true;
-				target <- nil;
-				
+				do getRevived;	
 				myself.underTreatment >- self;
-				myself.unconsciousGuests >- self;
-				//write name + " removed from underTreatment";
+				myself.unconsciousHumans >- self;
+				write name + " revived at hospital";
 			}
 		}
+//		ask Guest at_distance 0
+//		{	
+//			if(myself.underTreatment contains self)
+//			{
+//				do getRevived;	
+//				myself.underTreatment >- self;
+//				myself.unconsciousHumans >- self;
+//			}
+//		}		
+//		ask Security at_distance 0
+//		{	
+//			if(myself.underTreatment contains self)
+//			{
+//				do getRevived;	
+//				myself.underTreatment >- self;
+//				myself.unconsciousHumans >- self;
+//			}
+//		}
 
+		// When an ambulance has delivered a guest, set their targetHuman to nil
 		ask Ambulance at_distance 0
 		{
 			if(deliveringGuest = true)
 			{
 				deliveringGuest <- false;
-				targetGuest <- nil;
+				targetHuman <- nil;
 			}
 		}
 		
@@ -1351,12 +1521,6 @@ species ShowMaster
 		conferenceNext <- true;
 		do attractionEnded;
 		write name + " knows the stages have finished";
-		
-		// reset unsatisfied for all guests
-		ask Guest
-		{
-			unsatisfied <- false;
-		}
 	}
 	
 	/*
@@ -1380,6 +1544,9 @@ species ShowMaster
 	 	//write name + " has calculated global utility: " + globalUtility;
 	}
 	
+	/*
+	 * TODO: document 
+	 */
 	reflex conferenceOver when: length(Conference.population) = 0
 	{
 		
@@ -1437,6 +1604,9 @@ species ShowMaster
 		}
 	}
 	
+	/*
+	 * TODO: document 
+	 */
 	action createConferences
 	{
 		string genesisString <- name + " creating conference: ";
@@ -1449,7 +1619,10 @@ species ShowMaster
 		conferenceNext <- false;
 		
 	}
-	
+
+	/*
+	 * TODO: document 
+	 */	
 	action attractionEnded
 	{
 		nextAttractionStartTime <- int(time + rnd(showMasterIntervalMin, showMasterIntervalMax));
@@ -1465,7 +1638,7 @@ species Auctioner skills:[fipa, moving] parent: Building
 {
 	// Auction's initial size and color, location used in the beginning
 	int mySize <- 5;
-	rgb myColor <- #gray;
+//	rgb myColor <- #gray;
 	point targetLocation <- nil;
 	
 	// price of item to sell
@@ -1833,41 +2006,49 @@ species Conference skills: [fipa] parent: LongStayPlace
 /*
  * TODO: document  
  */
-species Ambulance skills:[moving]
+species Ambulance skills:[moving] parent: Human
 {
-	Guest targetGuest <- nil;
+	init
+	{
+		myColor <- ambulanceColor;
+		originalColor <- ambulanceColor;
+		mySpeed <- roboCopSpeed;
+		originalSpeed <- roboCopSpeed;
+		wanderer <- false;
+		wander <- false;
+	}
+
+	Human targetHuman <- nil;
 	Building hospital <- one_of(Hospital);
 	bool deliveringGuest <- false;
-	
-	aspect default
-	{
-		draw sphere(2) at: location color: #teal;
-	}
 
 	// Causes ambulance to go to the hospital when no target is set
-	reflex idleAtHospital when: targetGuest = nil
+	reflex idleAtHospital when: targetHuman = nil and isConscious and !isZombie
 	{
-		do goto target:(hospital.location) speed: roboCopSpeed;
+		mySpeed <- roboCopSpeed;
+		do goto target: hospital.location speed: mySpeed;
 	}
 
-	reflex gotoFaintedGuest when: targetGuest != nil
+	reflex gotoFaintedGuest when: targetHuman != nil and isConscious and !isZombie
 	{
-		do goto target:(targetGuest.location) speed: roboCopSpeed;
+		mySpeed <- roboCopSpeed;
+		do goto target: targetHuman.location speed: mySpeed;
 	}
 	
-	reflex collectFaintedGuest when: targetGuest != nil
+	reflex collectFaintedGuest when: targetHuman != nil and isConscious and !isZombie
 	{
 		deliveringGuest <- true;
-		if(location distance_to(targetGuest.location) < 1)
+		if(location distance_to(targetHuman.location) < 1)
 		{	
 			// Set's the guest's target to hospital
 			// (even unconscious guests can move)
 			deliveringGuest <- true;
-			ask targetGuest
+			ask targetHuman
 			{
 				target <- myself.hospital;
 			}
-			do goto target:(hospital.location) speed: guestSpeed;
+			mySpeed <- guestSpeed;
+			do goto target:(hospital.location) speed: mySpeed;
 		}
 	}	
 }// Ambulance end
@@ -1875,37 +2056,59 @@ species Ambulance skills:[moving]
 /*
  * This is the bouncer that goes around killing bad agents
  */
-species Security skills:[moving]
+species Security skills:[moving] parent: Human
 {
-	list<Guest> targets;
-	aspect default
+	init
 	{
-		draw cube(5) at: location color: #black;
+		myColor <- securityColor;
+		originalColor <- securityColor;
+		mySpeed <- guestSpeed;
+		originalSpeed <- guestSpeed;
 	}
-	
-	reflex catchBadGuest when: length(targets) > 0
+
+	/*
+	 * As long as security has humans on their list, they will go through them one by one and fight them
+	 * fighting zombies stops for the time of auctions
+	 */
+	reflex fightZombies when: length(zombies) > 0 and isConscious and !isZombie
 	{
-		// If a guest is in an auction, wait until they visit the info center again
-		if(targets[0].targetAuction != nil)
+		ask one_of(ShowMaster)
 		{
-			targets >- first(targets);
+			if(auctionsRunning)
+			{
+				myself.auctionsRunning <- true;
+			}
+			else
+			{
+				myself.auctionsRunning <- false;
+			}
+		}
+		
+		// Only fight zombies while auctions aren't running
+		// This is a long standing tradition of letting business go on about its business
+		if(!auctionsRunning)
+		{
+			// No need to beat a dead horse, or an unconscious zombie
+			if(target != nil)
+			{
+				if(!Human(target).isConscious)
+				{
+					target <- nil;
+				}
+			}
+			if(target = nil)
+			{
+				target <- one_of(zombies);
+				if(!Human(target).isConscious)
+				{
+					target <- nil;
+				}	
+			}
 		}
 		else
 		{
-			do goto target:(targets[0].location) speed: roboCopSpeed;
+			target <- nil;
 		}
-	}
-	
-	reflex badGuestCaught when: length(targets) > 0 and location distance_to(targets[0].location) < 0.2
-	{
-		ask targets[0]
-		{
-			write myself.name + " took away " + name + "s' bad feeling.";
-			hunger <- -1.0;
-			thirst <- -1.0;
-			isBad <- false;
-		}
-		targets >- first(targets);
 	}
 }//Security end
 
