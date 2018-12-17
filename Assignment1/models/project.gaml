@@ -234,6 +234,7 @@ species Human skills:[moving]
 	pair<float, float> targetOffset <- 0.0 :: 0.0;
 	// Default speed of all humans is guestSpeed
 	float mySpeed <- guestSpeed;
+	float originalSpeed <- guestSpeed;
 	
 	// A human may have a target of any species, used when moving
 	agent target;
@@ -322,27 +323,6 @@ species Human skills:[moving]
 					allHumans >- targetHuman;
 				}
 			}
-			// Pick a random guest until
-//			if(!contains(zombies, Guest.population))
-//			{
-//				target <- one_of(Guest.population - self - zombies);
-//				write name + " hungers. Chasing " + target;
-//			}
-//			else if(!contains(zombies, Ambulance.population))
-//			{
-//				target <- one_of(Ambulance.population - self - zombies);
-//				write name + " hungers. Chasing " + target;
-//			} 
-//			else if(!contains(zombies, Security.population))
-//			{
-//				target <- one_of(Security.population - self - zombies);
-//				write name + " hungers. Chasing " + target;
-//			}
-//			else
-//			{
-//				write name + " couldn't find an unzombified target, sad.";
-//				target <- nil;
-//			}
 		}		
 	}
 	
@@ -442,7 +422,11 @@ species Human skills:[moving]
 	action becomeZombie
 	{
 		isZombie <- true;
-		myColor <- zombieColor;
+		if(isConscious)
+		{
+			myColor <- zombieColor;	
+		}
+		mySpeed <- guestSpeed;
 		hungerModifier <- 2;
 		target <- nil;
 		zombies <+ self;
@@ -454,8 +438,11 @@ species Human skills:[moving]
 	 action unBecomeZombie
 	 {
 	 	isZombie <- false;
+	 	myColor <- originalColor;
+	 	mySpeed <- originalSpeed;
 	 	hungerModifier <- 1;
-	 	zombies <+ self;
+	 	target <- nil;
+	 	zombies >- self;
 	 }
 	
 	/*
@@ -478,23 +465,12 @@ species Human skills:[moving]
 	
 }
 
-/*
- * Max value for both thirst and hunger is 100
- * Guests enter with a random value for both between 50 and 100
- * 
- * Each guest gets an id number, which is simply a random number between 1000 and 10 000,
- * technically two guests could have the same id, but given the small number of guests that's unlikely
- * 
- * Guests will wander about until they get either thirsty or hungry, at which point they will start heading towards the info center
+/* 
+ * The guests are the oridinary guests to the festival. They participate in auctions, go to stages and to conferences.
  * 
  * Each guest has a random preferred price for merch
  * They will reject offers until their preferred price is reached,
  * upon which moment they accept and buy the merch
- * 
- * Guests have a 5% chance of being created as zombies (previously isBad)
- * zombies can infect nearby guests
- * zombies have a high utility for larger crowds
- * zombies ignore the utility for music, except for techno music
  */
 species Guest skills:[moving, fipa] parent: Human
 {	
@@ -589,7 +565,7 @@ species Guest skills:[moving, fipa] parent: Human
 		originalColor <- guestColor;
 		
 		// Guests have a 20% chance of being created as zombies
-		if(flip(0.5))
+		if(flip(0.2))
 		{
 			do becomeZombie;
 		}
@@ -627,8 +603,18 @@ species Guest skills:[moving, fipa] parent: Human
 								stg.stageShow * preferenceStageFashionability +
 								stg.stageShow * preferenceStageDanceability;
 				
+				// Zombies prefer techno music with a bias of 1000
+				if(isZombie)
+				{
+					if(stg.stageGenre = "trashy techno" or
+						stg.stageGenre = "traditional Russian song techno remixes" or
+						stg.stageGenre = "Sandstorm")
+					{
+						utility <- utility * 1000;
+					}
+				}
 				// If stage genre and guest's preference match, multily by bias (which is 1 + (0.0 to 0.9))				
-				if(stg.stageGenre = preferenceStageGenre)
+				else if(stg.stageGenre = preferenceStageGenre)
 				{
 					utility <- utility * preferenceStageGenreBias;
 				}
@@ -686,7 +672,7 @@ species Guest skills:[moving, fipa] parent: Human
 	/* 
 	 * Once guest's hunger reaches below gettingHungry (30), they will head towards info/bar
 	 */
-	reflex alwaysThirstyAlwaysHungry when: targetAuction = nil
+	reflex alwaysThirstyAlwaysHungry when: targetAuction = nil and !isZombie
 	{	
 		if(target = nil and hunger < gettingHungry and isConscious)
 		{	
@@ -723,15 +709,6 @@ species Guest skills:[moving, fipa] parent: Human
 			target <- targetStage;
 		}
 	}
-
-	/* 
-	 * When agent has target, move towards target
-	 * note: unconscious guests can still move, just to enable them moving to the hospital
-	 */
-//	reflex moveToTarget when: target != nil
-//	{
-//		do goto target:{target.location.x + targetOffset.key, target.location.y + targetOffset.value} speed: guestSpeed;
-//	}
 	
 	/*
 	 * Reached target exactly with 0 distance
@@ -2002,6 +1979,8 @@ species Ambulance skills:[moving] parent: Human
 	{
 		myColor <- ambulanceColor;
 		originalColor <- ambulanceColor;
+		mySpeed <- roboCopSpeed;
+		originalSpeed <- roboCopSpeed;
 		wanderer <- false;
 	}
 
@@ -2010,17 +1989,19 @@ species Ambulance skills:[moving] parent: Human
 	bool deliveringGuest <- false;
 
 	// Causes ambulance to go to the hospital when no target is set
-	reflex idleAtHospital when: targetHuman = nil
+	reflex idleAtHospital when: targetHuman = nil and !isZombie
 	{
-		do goto target: hospital.location speed: roboCopSpeed;
+		mySpeed <- roboCopSpeed;
+		do goto target: hospital.location speed: mySpeed;
 	}
 
-	reflex gotoFaintedGuest when: targetHuman != nil
+	reflex gotoFaintedGuest when: targetHuman != nil and !isZombie
 	{
-		do goto target: targetHuman.location speed: roboCopSpeed;
+		mySpeed <- roboCopSpeed;
+		do goto target: targetHuman.location speed: mySpeed;
 	}
 	
-	reflex collectFaintedGuest when: targetHuman != nil
+	reflex collectFaintedGuest when: targetHuman != nil and !isZombie
 	{
 		deliveringGuest <- true;
 		if(location distance_to(targetHuman.location) < 1)
@@ -2032,7 +2013,8 @@ species Ambulance skills:[moving] parent: Human
 			{
 				target <- myself.hospital;
 			}
-			do goto target:(hospital.location) speed: guestSpeed;
+			mySpeed <- guestSpeed;
+			do goto target:(hospital.location) speed: mySpeed;
 		}
 	}	
 }// Ambulance end
@@ -2045,7 +2027,8 @@ species Security skills:[moving] parent: Human
 	init
 	{
 		myColor <- securityColor;
-		mySpeed <- roboCopSpeed;	
+		mySpeed <- roboCopSpeed;
+		originalSpeed <- roboCopSpeed;
 	}
 	
 	list<Human> targets;
@@ -2053,18 +2036,8 @@ species Security skills:[moving] parent: Human
 	 * As long as security has humans on their list, they will go through them one by one and fight them
 	 * fighting zombies stops for the time of auctions
 	 */
-/*	reflex fightZombies when: length(zombies) > 0 and !isZombie
+	reflex fightZombies when: length(zombies) > 0 and !isZombie
 	{
-		// If a guest is in an auction, wait until they visit the info center again
-//		if(targets[0].targetAuction != nil)
-//		{
-//			targets >- first(targets);
-//		}
-//		else
-//		{
-//			do goto target:(targets[0].location) speed: roboCopSpeed;
-//		}
-
 		ask one_of(ShowMaster)
 		{
 			if(auctionsRunning)
@@ -2080,23 +2053,19 @@ species Security skills:[moving] parent: Human
 		// Only fight zombies while auctions aren't running
 		// This is a long standing tradition of letting business go on about its business
 		if(!auctionsRunning)
-		{
-			// If target is no longer infected
-//			if(!first(targets).isZombie and isConscious)
-//			{
-//				targets >- first(targets);
-//			}
-//			else
-//			{
-//				target <- first(targets);
-//			}
+		{			
 			target <- one_of(zombies);
+			// No need to beat a dead horse, or an unconscious zombie
+			if(!Human(target).isConscious)
+			{
+				target <- nil;	
+			}
 		}
 		else
 		{
 			target <- nil;
 		}
-	}*/
+	}
 	
 	/*
 	 * When the security catches a zombie, they fight them. There's a 10% chance they lose.
