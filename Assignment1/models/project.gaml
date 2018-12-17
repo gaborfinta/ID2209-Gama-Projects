@@ -129,8 +129,18 @@ global
 	// The number of ambulances is propotionate to the amount of guests
 	int ambulanceNumber <- max([1, round(guestNumber / 4)]);
 	
+	// A list of all humans for convenience
+	list<Human> allHumans;
 	// A list used to keep track of zombies
 	list<Human> zombies;
+	
+	// Zombie config
+	// chance of guest being created a zombie
+	float zombieChance <- 0.3;
+	// Chance of security winning a fight, if lose they get bitten and become zombie
+	float securityFightSuccessFactor <- 0.7;
+	// chance of a zombie winning a fight, if they lose they pass out
+	float zombieFightSuccessFactor <- 0.7;
 	
 	//Everything happens only once per day
 	int currDay <- 0;
@@ -143,7 +153,7 @@ global
 	int minNumberOfCyclesAtPlace <- 100;
 	
 	init
-	{
+	{	
 		/*
 		 * Number of auctioners is defined above 
 		 */
@@ -176,7 +186,7 @@ global
 		}
 			
 		/* Create security */
-		create Security number: ambulanceNumber * 2
+		create Security number: ambulanceNumber
 		{
 
 		}
@@ -192,6 +202,14 @@ global
 		{
 			
 		}
+		
+		//		// This returns all humans, essentially
+//	    list<Human> getAllHumans
+//	    {
+//	    	return Guest.population + Ambulance.population + Security.population;
+//	    }
+		allHumans <- Guest.population + Ambulance.population + Security.population;
+		write allHumans;
 	}
 	reflex currDay when: time != 0 and mod(time, cyclesPerDay) = 0
 	{
@@ -240,16 +258,13 @@ species Human skills:[moving]
 	agent target;
 	
 	// If this is a wandering kind of human. Ambulances aren't.
+	// two variables for zombification - zombified ambulances wander, normal ones don't
+	// we want to be able to back to the original state (same as original speed/color)
 	bool wanderer <- true;
+	bool wander <- true;
 	
 	// Used by security and zombies to pause securitying or zombieing while auctions are running
 	bool auctionsRunning <- false;
-	
-	// This returns all humans, essentially
-    list<Human> getAllHumans
-    {
-    	return Guest.population + Ambulance.population + Security.population;
-    }
 	
 	aspect default
 	{
@@ -280,7 +295,7 @@ species Human skills:[moving]
 	/*
 	 * it is a universal human quality to wander when they have nothing else to do
 	 */	
-	reflex wanderRandomly when: target = nil and isConscious and wanderer
+	reflex wanderRandomly when: target = nil and isConscious and wander
 	{
 		do wander;
 	}
@@ -288,8 +303,9 @@ species Human skills:[moving]
 	/*
 	 * When zombies are hungry they will chase the nearest non-zombie human and fight them.
 	 * Zombies have a 10% chance of losing and falling unconscious.
+	 * Unconscious zombies don't pick targets
 	 */
-	reflex beZombie when: isZombie and hunger < gettingHungry and target = nil
+	reflex beZombie when: isZombie and hunger < gettingHungry and target = nil and isConscious
 	{
 		//If auctions are running, don't zombie
 		ask one_of(ShowMaster)
@@ -308,19 +324,19 @@ species Human skills:[moving]
 		// you can't interrupt the march of capitalism
 		if(!auctionsRunning)
 		{
-			list<Human> allHumans <- getAllHumans();
+			list<Human> tempAllHumans <- allHumans;
 			Human targetHuman <- nil;
 			// pick a random human
-			loop while: (target = nil and length(allHumans) > 0)
+			loop while: (target = nil and length(tempAllHumans) > 0)
 			{
-				targetHuman <- one_of(allHumans);
+				targetHuman <- one_of(tempAllHumans);
 				if(!targetHuman.isZombie)
 				{
 					target <- targetHuman;
 				}
 				else
 				{
-					allHumans >- targetHuman;
+					tempAllHumans >- targetHuman;
 				}
 			}
 		}		
@@ -329,9 +345,50 @@ species Human skills:[moving]
 	/*
 	 * TODO: document
 	 */
- 	reflex fight when: target != nil and contains(getAllHumans(), target) and location distance_to(target.location) < 0.2
+ 	reflex fight when: target != nil and contains(allHumans, target) and location distance_to(target.location) < 0.2
 	{
 		string fightString <- name + " fought " + target + " and ";
+		// Zombies use zombieFightSuccessFactor
+		if(isZombie)
+		{
+			// If zombie wins, target becomes zombie
+			if(flip(zombieFightSuccessFactor))
+			{
+				ask Human(target)
+				{
+					do becomeZombie;
+				}
+				fightString <- fightString + "took a bite out of them!";
+				hunger <- getNewHungerValue();
+			}
+			// If zombie loses, zombie passes out
+			else
+			{
+				do perish;
+				fightString <- fightString + "lost terribly.";
+			}
+		}
+		// non-zombies use securityFightSuccessFactor
+		else
+		{
+			// If security wins, target passes out
+			if(flip(securityFightSuccessFactor))
+			{
+				// cast to human here because target could technically also be a building and those don't have the perish action
+				ask Human(target)
+				{
+					do perish;
+				}
+				fightString <- fightString + "won!";
+			}
+			// If security loses, they become zombie
+			else
+			{
+				do becomeZombie;
+				fightString <- fightString + "got bitten!";
+			}
+		}
+/*		
 		if(flip(0.9))
 		{
 			// If we're a zombie, we ask the target to also become a zombie
@@ -372,6 +429,7 @@ species Human skills:[moving]
 				do perish;	
 			}
 		}
+*/
 		target <- nil;
 		write fightString;
 	}
@@ -428,8 +486,10 @@ species Human skills:[moving]
 		}
 		mySpeed <- guestSpeed;
 		hungerModifier <- 2;
+		hunger <- getNewHungerValue();
 		target <- nil;
 		zombies <+ self;
+		wander <- true;
 	}
 	
 	/*
@@ -443,6 +503,7 @@ species Human skills:[moving]
 	 	hungerModifier <- 1;
 	 	target <- nil;
 	 	zombies >- self;
+	 	wander <- wanderer;
 	 }	
 }
 
@@ -541,8 +602,8 @@ species Guest skills:[moving, fipa] parent: Human
 		myColor <- guestColor;
 		originalColor <- guestColor;
 		
-		// Guests have a 20% chance of being created as zombies
-		if(flip(0.2))
+		// Guests have a zombieChance chance of being created as zombies (defined above)
+		if(flip(zombieChance))
 		{
 			do becomeZombie;
 		}
@@ -1149,6 +1210,7 @@ species InfoCenter parent: Building
 	{
 		myColor <- infoCenterColor;
 	}
+	
 }// InfoCenter end
 
 /*
@@ -1170,6 +1232,7 @@ species Bar parent: LongStayPlace
 
 /*
  * TODO: document
+ * TODO: stop hospital from dispatching zombified ambulances
  */
 species Hospital parent: Building
 {	
@@ -1183,7 +1246,7 @@ species Hospital parent: Building
 	
 	reflex checkForUnconsciousGuest
 	{
-		ask Guest
+		ask allHumans
 		{
 			if(isConscious = false)
 			{
@@ -1208,7 +1271,7 @@ species Hospital parent: Building
 	{
 		ask Ambulance at_distance 0
 		{
-			if(targetHuman = nil)
+			if(targetHuman = nil and isConscious and !isZombie)
 			{
 				loop tg from: 0 to: length(myself.unconsciousHumans) - 1
 				{
@@ -1230,25 +1293,34 @@ species Hospital parent: Building
 	 */
 	reflex reviveHumansAtHospital when: length(underTreatment) > 0
 	{
-		ask Guest at_distance 0
-		{	
+		ask allHumans at_distance 0
+		{
 			if(myself.underTreatment contains self)
 			{
 				do getRevived;	
 				myself.underTreatment >- self;
 				myself.unconsciousHumans >- self;
+				write name + " revived at hospital";
 			}
 		}
-		
-		ask Security at_distance 0
-		{	
-			if(myself.underTreatment contains self)
-			{
-				do getRevived;	
-				myself.underTreatment >- self;
-				myself.unconsciousHumans >- self;
-			}
-		}
+//		ask Guest at_distance 0
+//		{	
+//			if(myself.underTreatment contains self)
+//			{
+//				do getRevived;	
+//				myself.underTreatment >- self;
+//				myself.unconsciousHumans >- self;
+//			}
+//		}		
+//		ask Security at_distance 0
+//		{	
+//			if(myself.underTreatment contains self)
+//			{
+//				do getRevived;	
+//				myself.underTreatment >- self;
+//				myself.unconsciousHumans >- self;
+//			}
+//		}
 
 		// When an ambulance has delivered a guest, set their targetHuman to nil
 		ask Ambulance at_distance 0
@@ -1258,18 +1330,7 @@ species Hospital parent: Building
 				deliveringGuest <- false;
 				targetHuman <- nil;
 			}
-			else if(myself.underTreatment contains self)
-			{
-				do getRevived;	
-				myself.underTreatment >- self;
-				myself.unconsciousHumans >- self;
-			}
 		}
-		
-	}
-	
-	action reviveHuman
-	{
 		
 	}
 }
@@ -1906,6 +1967,7 @@ species Ambulance skills:[moving] parent: Human
 		mySpeed <- roboCopSpeed;
 		originalSpeed <- roboCopSpeed;
 		wanderer <- false;
+		wander <- false;
 	}
 
 	Human targetHuman <- nil;
@@ -1913,19 +1975,19 @@ species Ambulance skills:[moving] parent: Human
 	bool deliveringGuest <- false;
 
 	// Causes ambulance to go to the hospital when no target is set
-	reflex idleAtHospital when: targetHuman = nil and !isZombie
+	reflex idleAtHospital when: targetHuman = nil and isConscious and !isZombie
 	{
 		mySpeed <- roboCopSpeed;
 		do goto target: hospital.location speed: mySpeed;
 	}
 
-	reflex gotoFaintedGuest when: targetHuman != nil and !isZombie
+	reflex gotoFaintedGuest when: targetHuman != nil and isConscious and !isZombie
 	{
 		mySpeed <- roboCopSpeed;
 		do goto target: targetHuman.location speed: mySpeed;
 	}
 	
-	reflex collectFaintedGuest when: targetHuman != nil and !isZombie
+	reflex collectFaintedGuest when: targetHuman != nil and isConscious and !isZombie
 	{
 		deliveringGuest <- true;
 		if(location distance_to(targetHuman.location) < 1)
@@ -1951,15 +2013,16 @@ species Security skills:[moving] parent: Human
 	init
 	{
 		myColor <- securityColor;
-		mySpeed <- roboCopSpeed;
-		originalSpeed <- roboCopSpeed;
+		originalColor <- securityColor;
+		mySpeed <- guestSpeed;
+		originalSpeed <- guestSpeed;
 	}
 
 	/*
 	 * As long as security has humans on their list, they will go through them one by one and fight them
 	 * fighting zombies stops for the time of auctions
 	 */
-	reflex fightZombies when: length(zombies) > 0 and !isZombie
+	reflex fightZombies when: length(zombies) > 0 and isConscious and !isZombie
 	{
 		ask one_of(ShowMaster)
 		{
@@ -1976,12 +2039,22 @@ species Security skills:[moving] parent: Human
 		// Only fight zombies while auctions aren't running
 		// This is a long standing tradition of letting business go on about its business
 		if(!auctionsRunning)
-		{			
-			target <- one_of(zombies);
+		{
 			// No need to beat a dead horse, or an unconscious zombie
-			if(!Human(target).isConscious)
+			if(target != nil)
 			{
-				target <- nil;	
+				if(!Human(target).isConscious)
+				{
+					target <- nil;
+				}
+			}
+			if(target = nil)
+			{
+				target <- one_of(zombies);
+				if(!Human(target).isConscious)
+				{
+					target <- nil;
+				}	
 			}
 		}
 		else
