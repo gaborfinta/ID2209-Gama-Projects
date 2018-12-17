@@ -443,26 +443,7 @@ species Human skills:[moving]
 	 	hungerModifier <- 1;
 	 	target <- nil;
 	 	zombies >- self;
-	 }
-	
-	/*
-	 * Add self to robocop's list of all non-zombie security.
-	 * This is called by infocenter and also when a zombie bites a guest
-	 */
-	action addToRobocopsList
-	{
-		ask Security
-		{
-			if(!isZombie)
-			{
-				if(!(self.targets contains myself))
-				{
-					self.targets <+ myself;	
-				}	
-			}
-		}
-	}
-	
+	 }	
 }
 
 /* 
@@ -479,10 +460,6 @@ species Guest skills:[moving, fipa] parent: Human
 	
 	// List of remembered buildings
 	list<Building> guestBrain;
-	// Target to move towards
-//	Building target <- nil;
-	//x and y offset of the target
-//	pair<float, float> targetOffset <- 0.0 :: 0.0;
 
 	// Which auction is guest participating in
 	Auctioner targetAuction;
@@ -779,11 +756,6 @@ species Guest skills:[moving, fipa] parent: Human
 		
 	}
 	
-//	reflex wanderRandomly when: target = nil and isConscious
-//	{
-//		do wander;
-//	}
-	
 	/*
 	 * Guest is at a place where want to stay for a while
 	 * The long condition ensures that it can be either at the circumference of the stay but also between the center and the circumference
@@ -814,23 +786,6 @@ species Guest skills:[moving, fipa] parent: Human
 	 */
 	reflex thenPerish when: (hunger <= 0) and isConscious and !isZombie
 	{
-		/*
-		string perishMessage <- name + " fainted";
-		
-		if(thirst <= 0)
-		{
-			perishMessage <- perishMessage + " of thirst.";
-		}
-		else if(hunger <= 0)
-		{
-			perishMessage <- perishMessage + " of hunger.";
-		}
-		*/
-		//write perishMessage;
-//		isConscious <- false;
-//		myColor <- unconsciousColor;
-//		target <- nil;
-//		targetOffset <- 0.0 :: 0.0;
 		do perish;
 	}
 	
@@ -1187,43 +1142,12 @@ species Building
 	}
 }
 
-/* InfoCenter serves info with the ask function */
+// Infocenter sits at the center of the area, guests sometimes visit it when hungry, but it has no functions
 species InfoCenter parent: Building
 {
 	init
 	{
 		myColor <- infoCenterColor;
-	}
-
-	/*
-	 * TODO: document
-	 * Rn there's quite a bit or repetition here but I couldn't figure out how to do it in a loop
-	 */
-	reflex checkForBadGuest
-	{
-		ask Guest at_distance 0
-		{
-			if(self.isZombie)
-			{
-				do addToRobocopsList;
-			}
-		}
-			
-		ask Security at_distance 0
-		{
-			if(self.isZombie)
-			{
-				do addToRobocopsList;
-			}
-		}
-		
-		ask Ambulance at_distance 0
-		{
-			if(self.isZombie)
-			{
-				do addToRobocopsList;
-			}
-		}
 	}
 }// InfoCenter end
 
@@ -2030,8 +1954,7 @@ species Security skills:[moving] parent: Human
 		mySpeed <- roboCopSpeed;
 		originalSpeed <- roboCopSpeed;
 	}
-	
-	list<Human> targets;
+
 	/*
 	 * As long as security has humans on their list, they will go through them one by one and fight them
 	 * fighting zombies stops for the time of auctions
@@ -2066,54 +1989,6 @@ species Security skills:[moving] parent: Human
 			target <- nil;
 		}
 	}
-	
-	/*
-	 * When the security catches a zombie, they fight them. There's a 10% chance they lose.
-	 * If they lose, they become a zombie and targets is emptied,
-	 * if they win the zombie falls unconscious (and is taken to the hospital)
-	 */
-//	reflex fight when: length(targets) > 0 and location distance_to(target.location) < 0.2 and !isZombie
-/* 	reflex fight when: target != nil and target != Building and location distance_to(target.location) < 0.2
-	{
-		string fightString <- name + " fought " + target + " and ";
-		if(flip(0.9))
-		{
-			// If we're a zombie, we ask the target to also become a zombie
-			// Otherwise we ask the target to become unconscious
-			if(isZombie)
-			{
-				ask Human(target)
-				{
-					do becomeZombie;
-					fightString <- fightString + "took a bite out of them!";
-				}
-			}
-			else
-			{
-				// cast to human here because target could technically also be a building and those don't have the perish action
-				ask Human(target)
-				{
-					do perish;
-					fightString <- fightString + "won";
-				}	
-			}
-		}
-		else
-		{
-			if(Human(target).isZombie)
-			{
-				fightString <- fightString + "got bitten!";
-				do becomeZombie;
-			}
-			else
-			{
-				fightString <- fightString + "lost";
-				do perish;	
-			}
-		}
-		target <- nil;
-		write fightString;
-	}*/
 }//Security end
 
 // ################ Non-building agents end ################
