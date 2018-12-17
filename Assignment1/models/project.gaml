@@ -129,6 +129,9 @@ global
 	// The number of ambulances is propotionate to the amount of guests
 	int ambulanceNumber <- max([1, round(guestNumber / 4)]);
 	
+	// A list used to keep track of zombies
+	list<Human> zombies;
+	
 	//Everything happens only once per day
 	int currDay <- 0;
 	int cyclesPerDay <- 3000;
@@ -238,6 +241,15 @@ species Human skills:[moving]
 	// If this is a wandering kind of human. Ambulances aren't.
 	bool wanderer <- true;
 	
+	// Used by security and zombies to pause securitying or zombieing while auctions are running
+	bool auctionsRunning <- false;
+	
+	// This returns all humans, essentially
+    list<Human> getAllHumans
+    {
+    	return Guest.population + Ambulance.population + Security.population;
+    }
+	
 	aspect default
 	{
 		draw sphere(2) at: location color: myColor;
@@ -270,6 +282,118 @@ species Human skills:[moving]
 	reflex wanderRandomly when: target = nil and isConscious and wanderer
 	{
 		do wander;
+	}
+	
+	/*
+	 * When zombies are hungry they will chase the nearest non-zombie human and fight them.
+	 * Zombies have a 10% chance of losing and falling unconscious.
+	 */
+	reflex beZombie when: isZombie and hunger < gettingHungry and target = nil
+	{
+		//If auctions are running, don't zombie
+		ask one_of(ShowMaster)
+		{
+			if(auctionsRunning)
+			{
+				myself.auctionsRunning <- true;
+			}
+			else
+			{
+				myself.auctionsRunning <- false;
+			}
+		}
+		
+		// If auctions are running, we're not gonna do anything here
+		// you can't interrupt the march of capitalism
+		if(!auctionsRunning)
+		{
+			list<Human> allHumans <- getAllHumans();
+			Human targetHuman <- nil;
+			// pick a random human
+			loop while: (target = nil and length(allHumans) > 0)
+			{
+				targetHuman <- one_of(allHumans);
+				if(!targetHuman.isZombie)
+				{
+					target <- targetHuman;
+				}
+				else
+				{
+					allHumans >- targetHuman;
+				}
+			}
+			// Pick a random guest until
+//			if(!contains(zombies, Guest.population))
+//			{
+//				target <- one_of(Guest.population - self - zombies);
+//				write name + " hungers. Chasing " + target;
+//			}
+//			else if(!contains(zombies, Ambulance.population))
+//			{
+//				target <- one_of(Ambulance.population - self - zombies);
+//				write name + " hungers. Chasing " + target;
+//			} 
+//			else if(!contains(zombies, Security.population))
+//			{
+//				target <- one_of(Security.population - self - zombies);
+//				write name + " hungers. Chasing " + target;
+//			}
+//			else
+//			{
+//				write name + " couldn't find an unzombified target, sad.";
+//				target <- nil;
+//			}
+		}		
+	}
+	
+	/*
+	 * TODO: document
+	 */
+ 	reflex fight when: target != nil and contains(getAllHumans(), target) and location distance_to(target.location) < 0.2
+	{
+		string fightString <- name + " fought " + target + " and ";
+		if(flip(0.9))
+		{
+			// If we're a zombie, we ask the target to also become a zombie
+			// Otherwise we ask the target to become unconscious
+			if(isZombie)
+			{
+				ask Human(target)
+				{
+					do becomeZombie;
+				}
+				fightString <- fightString + "took a bite out of them!";
+				hunger <- getNewHungerValue();
+			}
+			else
+			{
+				// cast to human here because target could technically also be a building and those don't have the perish action
+				ask Human(target)
+				{
+					do perish;
+					fightString <- fightString + "won";
+				}	
+			}
+		}
+		else
+		{
+			if(Human(target).isZombie)
+			{
+				fightString <- fightString + "got bitten!";
+				ask Human(target)
+				{
+					hunger <- getNewHungerValue();
+				}
+				do becomeZombie;
+			}
+			else
+			{
+				fightString <- fightString + "lost";
+				do perish;	
+			}
+		}
+		target <- nil;
+		write fightString;
 	}
 
 // Human actions
@@ -321,6 +445,7 @@ species Human skills:[moving]
 		myColor <- zombieColor;
 		hungerModifier <- 2;
 		target <- nil;
+		zombies <+ self;
 	}
 	
 	/*
@@ -330,6 +455,7 @@ species Human skills:[moving]
 	 {
 	 	isZombie <- false;
 	 	hungerModifier <- 1;
+	 	zombies <+ self;
 	 }
 	
 	/*
@@ -463,12 +589,9 @@ species Guest skills:[moving, fipa] parent: Human
 		originalColor <- guestColor;
 		
 		// Guests have a 20% chance of being created as zombies
-		isZombie <- flip(0.5);
-		
-		if(isZombie)
+		if(flip(0.5))
 		{
-			myColor <- zombieColor;
-			hungerRate <- 2;
+			do becomeZombie;
 		}
 	}
 		
@@ -1926,12 +2049,11 @@ species Security skills:[moving] parent: Human
 	}
 	
 	list<Human> targets;
-	bool auctionsRunning <- false;
 	/*
 	 * As long as security has humans on their list, they will go through them one by one and fight them
 	 * fighting zombies stops for the time of auctions
 	 */
-	reflex fightZombies when: length(targets) > 0 and !isZombie
+/*	reflex fightZombies when: length(zombies) > 0 and !isZombie
 	{
 		// If a guest is in an auction, wait until they visit the info center again
 //		if(targets[0].targetAuction != nil)
@@ -1960,47 +2082,69 @@ species Security skills:[moving] parent: Human
 		if(!auctionsRunning)
 		{
 			// If target is no longer infected
-			if(!first(targets).isZombie and isConscious)
-			{
-				targets >- first(targets);
-			}
-			else
-			{
-				target <- first(targets);
-			}
+//			if(!first(targets).isZombie and isConscious)
+//			{
+//				targets >- first(targets);
+//			}
+//			else
+//			{
+//				target <- first(targets);
+//			}
+			target <- one_of(zombies);
 		}
 		else
 		{
 			target <- nil;
 		}
-	}
+	}*/
 	
 	/*
 	 * When the security catches a zombie, they fight them. There's a 10% chance they lose.
 	 * If they lose, they become a zombie and targets is emptied,
 	 * if they win the zombie falls unconscious (and is taken to the hospital)
 	 */
-	reflex badGuestCaught when: length(targets) > 0 and location distance_to(first(targets).location) < 0.2 and !isZombie
+//	reflex fight when: length(targets) > 0 and location distance_to(target.location) < 0.2 and !isZombie
+/* 	reflex fight when: target != nil and target != Building and location distance_to(target.location) < 0.2
 	{
-		string fightString <- name + " fought " + first(targets).name + " and ";
+		string fightString <- name + " fought " + target + " and ";
 		if(flip(0.9))
 		{
-			ask first(targets)
+			// If we're a zombie, we ask the target to also become a zombie
+			// Otherwise we ask the target to become unconscious
+			if(isZombie)
 			{
-				do perish;
-				fightString <- fightString + "won";
+				ask Human(target)
+				{
+					do becomeZombie;
+					fightString <- fightString + "took a bite out of them!";
+				}
 			}
-			targets >- first(targets);
-			target <- nil;
+			else
+			{
+				// cast to human here because target could technically also be a building and those don't have the perish action
+				ask Human(target)
+				{
+					do perish;
+					fightString <- fightString + "won";
+				}	
+			}
 		}
 		else
 		{
-			fightString <- fightString + "lost";
-			do becomeZombie;
-			targets <- [];
+			if(Human(target).isZombie)
+			{
+				fightString <- fightString + "got bitten!";
+				do becomeZombie;
+			}
+			else
+			{
+				fightString <- fightString + "lost";
+				do perish;	
+			}
 		}
+		target <- nil;
 		write fightString;
-	}
+	}*/
 }//Security end
 
 // ################ Non-building agents end ################
