@@ -282,7 +282,7 @@ species Human skills:[moving]
 	 * When agent has target, move towards target
 	 * note: unconscious guests can still move, just to enable them moving to the hospital
 	 */
-	reflex moveToTarget when: target != nil
+	reflex moveToTarget when: target != nil and !dead(target)
 	{
 		do goto target:{target.location.x + targetOffset.key, target.location.y + targetOffset.value} speed: mySpeed;
 	}
