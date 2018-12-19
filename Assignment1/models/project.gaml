@@ -3,13 +3,7 @@
 * Author: Finta, Vartiainen
 * Description: Festival scene with hungry guests, bad guests and a security guard
 * 
-* TODO:
-	debug conferences (Gábor)
-	add new type of guest (Ville)
-	 	parent for all non-building species (Ville)
-		also how do agents interact with each other? (3 attributes)
-	measure some global value (chaos or amount of population zombified) (Ville)
-	
+* The project should run without any special measures in gama 1.8
 */
 
 model NewModel
@@ -348,7 +342,18 @@ species Human skills:[moving]
 	}
 	
 	/*
-	 * TODO: document
+	 * Whenever a human reaches a target human, they will fight them
+	 * This occurs with security and zombies
+	 * (even though ambulances head towards humans, they use a separate targetHuman variable, not target and therefore do not try to fight the patients... Luckily)
+	 * The SuccessFactors for winning a fight are defined separately for security and zombies in the config at the very top
+	 * 
+	 * If a zombie wins a fight, the target becomes a zombie
+	 * else the zombie falls unconscious
+	 *  
+	 * if a non-zombie (security) wins a fight, the target falls unconscious
+	 * else the non-zombie who initiated the fight becomes a zombie
+	 * 
+	 * The above process and successFactors usually result in either a gradual zombification of all humans or a gradual extermination of all zombies
 	 */
  	reflex fight when: target != nil and contains(allHumans, target) and location distance_to(target.location) < 0.2
 	{
@@ -393,48 +398,6 @@ species Human skills:[moving]
 				fightString <- fightString + "got bitten!";
 			}
 		}
-/*		
-		if(flip(0.9))
-		{
-			// If we're a zombie, we ask the target to also become a zombie
-			// Otherwise we ask the target to become unconscious
-			if(isZombie)
-			{
-				ask Human(target)
-				{
-					do becomeZombie;
-				}
-				fightString <- fightString + "took a bite out of them!";
-				hunger <- getNewHungerValue();
-			}
-			else
-			{
-				// cast to human here because target could technically also be a building and those don't have the perish action
-				ask Human(target)
-				{
-					do perish;
-					fightString <- fightString + "won";
-				}	
-			}
-		}
-		else
-		{
-			if(Human(target).isZombie)
-			{
-				fightString <- fightString + "got bitten!";
-				ask Human(target)
-				{
-					hunger <- getNewHungerValue();
-				}
-				do becomeZombie;
-			}
-			else
-			{
-				fightString <- fightString + "lost";
-				do perish;	
-			}
-		}
-*/
 		target <- nil;
 		write fightString;
 	}
@@ -519,7 +482,7 @@ species Human skills:[moving]
  * They will reject offers until their preferred price is reached,
  * upon which moment they accept and buy the merch
  */
-species Guest skills:[moving, fipa] parent: Human
+species Guest skills:[fipa] parent: Human
 {	
 	float happiness <- 0.0;
 	// This is the price at which the guest will buy merch, set in the configs above
@@ -795,7 +758,9 @@ species Guest skills:[moving, fipa] parent: Human
 	}
 	
 	/*
-	 * TODO: Document
+ * 	 * If the request initiator still exists (i.e. not dead), process their requests
+	 * This ensures requests from already expired auctions aren't processed 
+	 * Should not happen, but doesn't hurt to be safe
 	 */
 	reflex listenCFPSMessages when: (!empty(cfps))
 	{
@@ -806,6 +771,10 @@ species Guest skills:[moving, fipa] parent: Human
 		}
 	}
 	
+	/*
+	 * If the request initiator still exists (i.e. not dead), process their requests
+	 * This ensures requests from already expired conferences aren't processed 
+	 */
 	reflex listenInformMessages when: (!empty(informs))
 	{
 		message requestFromInitiator <- (informs at 0);
@@ -1035,7 +1004,7 @@ species Guest skills:[moving, fipa] parent: Human
 	 }
 	
 	/*
-	 * TODO: document
+	 * Reset variables when leaving longStayPlace
 	 */
 	action leaveLongStayPlace
 	{
@@ -1275,12 +1244,20 @@ species LongStayPlace parent: Building
 */
 species Bar parent: LongStayPlace
 {
-	rgb myColor <- barColor; 
+	init
+	{
+		myColor <- barColor;
+	}
 }
 
 /*
- * TODO: document
- * TODO: stop hospital from dispatching zombified ambulances
+ * The hospital continuously checks all humans in case they are still conscious
+ * If not, the unconscious human is added to the unconsciousHumans list
+ * Whenever there are humans on the list and ambulances at the hospital,
+ * the hospital will dispatch ambulances for the guests
+ * 
+ * The hospital also checks for any unconscious humans at the hospital and revives them.
+ * When reviving a guest, deliveringGuest is set to false for the ambulance that delivered them
  */
 species Hospital parent: Building
 {	
@@ -1308,7 +1285,7 @@ species Hospital parent: Building
 	}
 	
 	/*
-	 * Whenever there is an ambulance nearby and it has no target,
+	 * Whenever there is an ambulance nearby (distance = 0) and it has no target,
 	 * give it a target from unconsciousHumans
 	 * 
 	 * remove from unconsciousHumans, add to underTreatment
@@ -1336,8 +1313,9 @@ species Hospital parent: Building
 	}
 	
 	/*
-	 * TODO: document
-	 * TODO: right now this has a dumb structure, do better if time / energy
+	 * Whenever there is an unconscious human near (distance = 0) the hospital, revive them
+	 * Also relieve hospitals near (distance = 0) the hospital, which have deliveringGuest = true, from their deliveringGuest status
+	 * This frees the ambulances to be dispatched again
 	 */
 	reflex reviveHumansAtHospital when: length(underTreatment) > 0
 	{
@@ -1351,24 +1329,6 @@ species Hospital parent: Building
 				write name + " revived at hospital";
 			}
 		}
-//		ask Guest at_distance 0
-//		{	
-//			if(myself.underTreatment contains self)
-//			{
-//				do getRevived;	
-//				myself.underTreatment >- self;
-//				myself.unconsciousHumans >- self;
-//			}
-//		}		
-//		ask Security at_distance 0
-//		{	
-//			if(myself.underTreatment contains self)
-//			{
-//				do getRevived;	
-//				myself.underTreatment >- self;
-//				myself.unconsciousHumans >- self;
-//			}
-//		}
 
 		// When an ambulance has delivered a guest, set their targetHuman to nil
 		ask Ambulance at_distance 0
@@ -1472,7 +1432,7 @@ species ShowMaster
 	
 	/*
 	 * Ask if auctioners are done running around
-	 * TODO: document auctioneers returning and being sent out again
+	 * Literally if an auctioneer has targetLocation = nil, it means they've reached their target and are ready to start auction 
 	 */
 	reflex startAuctions when: auctionsCreated and !auctionsRunning
 	{
@@ -1545,7 +1505,8 @@ species ShowMaster
 	}
 	
 	/*
-	 * TODO: document 
+	 * This is here just in case
+	 * TODO: Either remove or add content
 	 */
 	reflex conferenceOver when: length(Conference.population) = 0
 	{
@@ -1605,7 +1566,7 @@ species ShowMaster
 	}
 	
 	/*
-	 * TODO: document 
+	 * Creates conferences, fairly simple.
 	 */
 	action createConferences
 	{
@@ -1614,14 +1575,12 @@ species ShowMaster
 		{
 			
 		}
-		
 		conferenceCreated <- true;
 		conferenceNext <- false;
-		
 	}
 
 	/*
-	 * TODO: document 
+	 * Puts an interval before the start of the next attraction (action, stage, conference) after one has ended
 	 */	
 	action attractionEnded
 	{
@@ -1632,13 +1591,21 @@ species ShowMaster
 }
 
 /*
- * TODO: document
+ * There are three types of auctions, Dutch, English and sealed, which are all implemented here
+ * Auctioners will, when created, rush to their targetLocation (set randomly upon creation) and then start flashing and pumping according to reflex casinoLights
+ * Once in position auctioners will send invitations to guests, using fipa.
+ * There are four types of items available and the four auctioners will always have different items.
+ * Guests accept invitiations for auctions of their preferred item.
+ * If no guest joins an auctioner's auction, they will go back to the show master, otherwise they will wait for the guests to move to their location and start auction.
+ * Auction runs according to its type (type is decided randomly upon creation) and once finished, the auctioner informs the winnder of the auction that they've won and all the participants that the auctions are over
+ * Then the auctioner rushes back to the showMaster and do die;
+ *
+ * Guests winning pieces of clothing is not governed here, but rather in the guests themselves.
  */
 species Auctioner skills:[fipa, moving] parent: Building
 {
 	// Auction's initial size and color, location used in the beginning
 	int mySize <- 5;
-//	rgb myColor <- #gray;
 	point targetLocation <- nil;
 	
 	// price of item to sell
@@ -1893,7 +1860,6 @@ species Auctioner skills:[fipa, moving] parent: Building
 species Stage parent: Building
 {
 	float mySize <- 5.0;
-	rgb myColor <- #gray;
 	
 	bool showExpired <- false;
 	float startTime <- time;
@@ -1935,6 +1901,9 @@ species Stage parent: Building
 	
 }
 
+/*
+ * Conferences will invite guests over and accept until maxParticipants is reached
+ */
 species Conference skills: [fipa] parent: LongStayPlace
 {
 	int maxParticipants <- 6;
@@ -1950,6 +1919,9 @@ species Conference skills: [fipa] parent: LongStayPlace
 		do start_conversation (to: list(Guest), protocol: 'fipa-propose', performative: 'propose', contents: ["interested?"]);
 	}
 	
+	/*
+	 * Guests are accepted to the conference as long as there is space in the conference 
+	 */
 	reflex receive_accept_messages when: !empty(accept_proposals) 
 	{
 		replyCounter <- replyCounter + length(accept_proposals);
@@ -1964,12 +1936,15 @@ species Conference skills: [fipa] parent: LongStayPlace
 		}
 	}
 	
-	//nobody cares about simple-minden individuals
+	//nobody cares about simple-minded individuals
 	reflex receive_reject_messages when: !empty(reject_proposals)
 	{
 		replyCounter <- replyCounter + length(reject_proposals);
 	}
 	
+	/*
+	 * start the conference once guests have arrived and informs ShowMaster
+	 */
 	reflex startConference when: (length(participants) = maxParticipants or replyCounter = length(Guest.population))
 	{	
 		if(!one_of(ShowMaster).conferenceRunning)
@@ -1986,13 +1961,14 @@ species Conference skills: [fipa] parent: LongStayPlace
 		}
 	}
 	
+	/*
+	 * Checks once guests have left the conference and do die;
+	 */
 	reflex guestsHaveLeft when: one_of(ShowMaster).conferenceRunning and participants min_of (location distance_to(each.location)) > longStayPlaceRadius + floatError
 	{
-		write "conference ended, guess I'll die";
+		write name + " conference ended, guess I'll die";
 		do die;
 	}
-	
-	
 	
 	aspect default
 	{
@@ -2004,7 +1980,10 @@ species Conference skills: [fipa] parent: LongStayPlace
 // ################ Non-building agents start ################
 
 /*
- * TODO: document  
+ * Ambulances reside in the hospital and will return there they have nothing else to do.
+ * When a human falls unconscious, the hospital will give one of the ambulances present at the hospital a targetHuman
+ * and the ambulance will go to targetHuman.location and ask the targetHuman to go to the hospital
+ * and the ambulance will follow along at guestSpeed to create a dragging effect where the agents move together
  */
 species Ambulance skills:[moving] parent: Human
 {
@@ -2054,7 +2033,9 @@ species Ambulance skills:[moving] parent: Human
 }// Ambulance end
 
 /*
- * This is the bouncer that goes around killing bad agents
+ * Security fights zombies and as long as auctions are not running (just to not mess up the auctions),
+ * security will pick itself a target from the zombies list and chase them down and fight them.
+ * Fighting is implemented under the Human species.
  */
 species Security skills:[moving] parent: Human
 {
@@ -2089,7 +2070,7 @@ species Security skills:[moving] parent: Human
 		if(!auctionsRunning)
 		{
 			// No need to beat a dead horse, or an unconscious zombie
-			if(target != nil)
+			if(target != nil and Human(target) != nil)
 			{
 				if(!Human(target).isConscious)
 				{
