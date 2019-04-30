@@ -35,3 +35,6 @@ This picture shows an example final setup for N=10
 
 <img src="https://user-images.githubusercontent.com/31373135/55143743-a7b5a680-513f-11e9-900f-b4102ffd2abd.png" height="400"/>
 
+## Assignment files
+The model folder contains three files. In this assignment, the challenges implemented can be found in the *Assignment3_stages_challenge.gaml*. This implements stages on the festival area.
+The creative part of the assignment can be found in the file *Assignment3_zombies.gaml* and introduces zombies.

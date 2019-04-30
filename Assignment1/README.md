@@ -30,3 +30,7 @@ In their idle state, the ambulances will head to the hospital and wait for instr
 First picture shows ambulances (blue sphere) in the field, while the second one shows them during work, dragging unconscious (yellow spheres) people around.
 
 <img src=https://user-images.githubusercontent.com/31373135/55077542-50a8c680-5098-11e9-9699-d44d83795bc0.png height="200" border="1"> <img src=https://user-images.githubusercontent.com/31373135/55077541-50a8c680-5098-11e9-92dd-80c8eda2cf0c.png height="200" border="1">
+
+## Assignment files
+The model folder contains three files. In this assignment, the challenges implemented can be found in the *Assignment1_challenge.gaml*. This includes the guest memory, the security guard and the bad guests.
+The creative part of the assignment can be found in the file *Assignment1_creative.gaml* and includes the starving guests and ambulances.
